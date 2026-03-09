@@ -1,0 +1,88 @@
+// ============================================================
+// LogiKnotting
+// Knot Design & Topology Software
+// -------------------------------------------------------------------------------------------------
+// SPDX-License-Identifier: GPL-3.0-or-later // SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Norbert TRUPIANO
+// This file is part of the LogiKnotting project.
+// -------------------------------------------------------------------------------------------------
+// Concept : Norbert TRUPIANO
+// Author  : Norbert TRUPIANO
+// Help Analyste & Programming : ChatGPT & Codex
+// -------------------------------------------------------------------------------------------------
+// LogiKnotting is free software: you can redistribute it and/or
+// modify it under the terms of the GNU General Public License
+// as published by the Free Software Foundation,
+// either version 3 of the License, or (at your option)
+// any later version.
+// -------------------------------------------------------------------------------------------------
+// LogiKnotting is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+// -------------------------------------------------------------------------------------------------
+// See the GNU General Public License for more details.
+// https://www.gnu.org/licenses/gpl-3.0.html
+// ============================================================
+// Repository  : https://github.com/norberttrupiano-wq/LogiKnotting
+// File        : src/tools/PointBleuTool.cpp
+// Created     : 2026-03-06
+// Updated     : 2026-03-07
+// Description :
+// ============================================================
+#include "PointBleuTool.h"
+#include "../workspace/WorkspaceModel.h"
+
+// ============================================================
+// CONSTRUCTEUR / DESTRUCTEUR
+// ============================================================
+
+PointBleuTool::PointBleuTool(WorkspaceModel* model, QObject* parent)
+    : QObject(parent)
+    , m_model(model)
+    , m_active(false)
+{
+    // Le modèle est la seule entité modifiée par cet outil.
+}
+
+PointBleuTool::~PointBleuTool() = default;
+
+// ============================================================
+// CYCLE DE VIE DE L’OUTIL
+// ============================================================
+
+void PointBleuTool::activate()
+{
+    m_active = true;
+}
+
+void PointBleuTool::deactivate()
+{
+    m_active = false;
+}
+
+// ============================================================
+// ÉVÉNEMENTS SOURIS
+// ============================================================
+
+void PointBleuTool::mousePress(const QPointF& pos)
+{
+    if (!m_active || !m_model)
+        return;
+
+    // Ajout append-only
+    m_model->addPoint(pos);
+}
+
+void PointBleuTool::mouseMove(const QPointF& pos)
+{
+    Q_UNUSED(pos)
+}
+
+void PointBleuTool::mouseRelease(const QPointF& pos)
+{
+    Q_UNUSED(pos)
+}
+
+// ============================================================
+// End Of File
+// ============================================================

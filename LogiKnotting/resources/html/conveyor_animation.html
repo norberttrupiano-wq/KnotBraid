@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Ruban cylindrique – Modèle mental</title>
+<style>
+    body {
+        margin: 0;
+        background: transparent;
+        overflow: hidden;
+    }
+    canvas {
+        display: block;
+        margin: auto;
+        background: transparent;
+    }
+</style>
+</head>
+<body>
+
+<canvas id="c" width="520" height="180"></canvas>
+
+<script>
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+
+const W = canvas.width;
+const H = canvas.height;
+
+// Géométrie
+const rollerRadius = 28;
+const leftRollerX  = 110;
+const rightRollerX = 410;
+const rollerY      = 90;
+
+const beltTopY    = rollerY - rollerRadius;
+const beltBottomY = rollerY + rollerRadius;
+
+// Animation
+let offset = 0;
+const speed = 1.2; // px / frame
+
+function drawRoller(x, y, angle) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+
+    ctx.fillStyle = "#ddd";
+    ctx.strokeStyle = "#222";
+    ctx.lineWidth = 2;
+
+    ctx.beginPath();
+    ctx.arc(0, 0, rollerRadius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // marque de rotation
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(rollerRadius, 0);
+    ctx.stroke();
+
+    ctx.restore();
+}
+
+function drawBelt() {
+    // lignes du tapis
+    ctx.strokeStyle = "#888";
+    ctx.lineWidth = 2;
+
+    ctx.beginPath();
+    ctx.moveTo(leftRollerX, beltTopY);
+    ctx.lineTo(rightRollerX, beltTopY);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(leftRollerX, beltBottomY);
+    ctx.lineTo(rightRollerX, beltBottomY);
+    ctx.stroke();
+
+    // stries VERTICALES (cohérentes)
+    ctx.strokeStyle = "#aaa";
+    ctx.lineWidth = 1;
+
+    const spacing = 20;
+    for (let x = leftRollerX - (offset % spacing); x < rightRollerX; x += spacing) {
+        ctx.beginPath();
+        ctx.moveTo(x, beltTopY);
+        ctx.lineTo(x, beltBottomY);
+        ctx.stroke();
+    }
+}
+
+function animate() {
+    ctx.clearRect(0, 0, W, H);
+
+    const angularSpeed = speed / rollerRadius;
+    offset += speed;
+
+    drawBelt();
+
+    // les deux rouleaux tournent dans le même sens
+    drawRoller(leftRollerX,  rollerY, -offset * angularSpeed);
+    drawRoller(rightRollerX, rollerY, -offset * angularSpeed);
+
+    requestAnimationFrame(animate);
+}
+
+animate();
+</script>
+
+</body>
+</html>

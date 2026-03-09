@@ -1,0 +1,17 @@
+﻿KeyGenerator/
+.git-backups/
+**/_write_test.tmp
+
+# Build outputs
+**/build/
+**/build-*/
+
+# IDE local files
+**/.qtcreator/
+*.user
+*.autosave
+
+# OS / archives
+Thumbs.db
+.DS_Store
+*.zip

@@ -1,0 +1,23 @@
+﻿# Build
+/build/
+build-*/
+
+*.user
+*.autosave
+
+# Qt Creator
+.qtcreator/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Local ignore folder(s)
+/ignore/
+/ignor*/
+
+# Archives / docs
+*.zip
+*.json
+*.docx
+*.lk?
