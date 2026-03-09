@@ -7,6 +7,15 @@ Le dépôt est organisé en **monorepo** afin de publier l’ensemble de la suit
 
 - `LogiKnotting/` : éditeur topologique de nœuds et de rubans.
 - `LogiBraiding/` : outil de travail sur les tresses (ABoK et variantes).
+## Captures d'ecran
+
+### LogiKnotting
+  <img src="docs/images/logiknotting-main.png" alt="LogiKnotting - ecran principal" width="75%">
+</p>
+
+### LogiBraiding
+  <img src="docs/images/logibraiding-main.png" alt="LogiBraiding - ecran principal" width="75%">
+</p>
 
 ## Prérequis
 
