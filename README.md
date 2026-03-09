@@ -61,5 +61,6 @@ git push -u origin main
 
 ## Licence
 
-Chaque sous-projet conserve sa propre licence et ses mentions.
-Voir les fichiers de licence et en-tetes sources dans `LogiKnotting/` et `LogiBraiding/`.
+La licence principale du monorepo est disponible dans `LICENSE` (copie de `LogiKnotting/LICENCE`, GPL v3).
+Les sous-projets peuvent conserver des mentions complementaires dans leurs dossiers respectifs.
+
