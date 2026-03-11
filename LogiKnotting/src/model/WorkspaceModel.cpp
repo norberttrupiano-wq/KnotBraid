@@ -1,4 +1,4 @@
-// ============================================================
+﻿// ============================================================
 // LogiKnotting
 // Knot Design & Topology Software
 // -------------------------------------------------------------------------------------------------
@@ -61,7 +61,7 @@ static std::int64_t normalizeModI64(std::int64_t v, std::int64_t m)
 
 static int floorDivI64(std::int64_t a, std::int64_t b)
 {
-    // division entiÃƒÆ’Ã‚Â¨re "mathÃƒÆ’Ã‚Â©matique" (floor), b > 0
+    // division entiÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¨re "mathÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©matique" (floor), b > 0
     if (b <= 0) return 0;
     if (a >= 0) return static_cast<int>(a / b);
     return static_cast<int>(- ((-a + b - 1) / b));
@@ -250,6 +250,38 @@ QColor WorkspaceModel::ropeColor(int ropeId) const
 const Domain::TopologySnapshot& WorkspaceModel::topologySnapshot() const
 {
     return m_topologyStore.snapshot();
+}
+
+bool WorkspaceModel::canValidateAsLocked() const
+{
+    const auto& topo = m_topologyStore.snapshot();
+    const int L = topo.ribbonLengthMM;
+    if (L <= 0)
+        return false;
+
+    bool hasAnyRope = false;
+
+    for (const auto& rope : topo.ropes)
+    {
+        if (rope.points.empty())
+            continue;
+
+        hasAnyRope = true;
+
+        if (rope.points.size() < 2)
+            return false;
+
+        const auto& first = rope.points.front();
+        const auto& last = rope.points.back();
+
+        const int firstX = static_cast<int>(normalizeModI64(first.xAbs, static_cast<std::int64_t>(L)));
+        const int lastX = static_cast<int>(normalizeModI64(last.xAbs, static_cast<std::int64_t>(L)));
+
+        if (firstX != lastX || first.y != last.y)
+            return false;
+    }
+
+    return hasAnyRope;
 }
 
 // ------------------------------------------------------------
@@ -541,7 +573,7 @@ void WorkspaceModel::rebuildSegments()
 }
 
 // ------------------------------------------------------------
-// Rebuild crossings (V2) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â COHÃƒÆ’Ã¢â‚¬Â°RENT CYLINDRE
+// Rebuild crossings (V2) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â COHÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â°RENT CYLINDRE
 // ------------------------------------------------------------
 void WorkspaceModel::rebuildCrossings()
 {
@@ -818,7 +850,7 @@ void WorkspaceModel::apply(const Action& action)
     {
         m_points.push_back(action.positionMM);
 
-        // MIGRATION-PARALLEL: double-ÃƒÂ©criture legacy + TopologyStore
+        // MIGRATION-PARALLEL: double-ÃƒÆ’Ã‚Â©criture legacy + TopologyStore
         m_topologyStore.appendLogicalPointForRope(
             static_cast<Domain::RopeId>(action.ropeId),
             action.positionMM
@@ -884,6 +916,22 @@ void WorkspaceModel::rotateRibbonMM(int deltaMM)
         m_ribbonOffsetMM += m_ribbonLengthMM;
 
     m_topologyStore.setRibbonOffsetMM(m_ribbonOffsetMM);
+}
+
+void WorkspaceModel::setRibbonLengthMM(int value)
+{
+    if (value < 140)
+        value = 140;
+
+    m_ribbonLengthMM = value;
+    m_ribbonOffsetMM = static_cast<int>(normalizeModI64(m_ribbonOffsetMM, m_ribbonLengthMM));
+
+    rebuildPointsXAbs();
+    rebuildSegments();
+
+    m_topologyStore.setRibbonLengthMM(m_ribbonLengthMM);
+    m_topologyStore.setRibbonOffsetMM(m_ribbonOffsetMM);
+    syncTopologyStoreFromLegacy();
 }
 
 void WorkspaceModel::setRibbonOffsetMM(int v)
@@ -1014,7 +1062,7 @@ bool WorkspaceModel::saveToFile(const QString& filePath) const
 // ------------------------------------------------------------
 Model::Orientation WorkspaceModel::computeOrientation(const QLineF& seg) const
 {
-    double angle = seg.angle(); // Qt: 0Ãƒâ€šÃ‚Â° = East, CCW positive
+    double angle = seg.angle(); // Qt: 0ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â° = East, CCW positive
 
     int quant = static_cast<int>(std::round(angle / 45.0)) % 8;
 
@@ -1313,5 +1361,6 @@ int WorkspaceModel::bightCount() const
 // ============================================================
 // End Of File
 // ============================================================
+
 
 

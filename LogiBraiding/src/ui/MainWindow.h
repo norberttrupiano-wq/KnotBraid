@@ -2,6 +2,7 @@
 #define MAINWINDOW_H
 
 #include <QMainWindow>
+#include <QByteArray>
 #include <QString>
 #include <QVector>
 
@@ -28,6 +29,7 @@ public:
 
 private slots:
     void handleMoveDone();
+    void handleFullAnimation();
     void restartSequence();
     void handleBraidSelectionChanged(int index);
     void loadReferenceDrawing();
@@ -36,6 +38,7 @@ private slots:
     void handlePalettePresetChanged(int index);
     void openQuickHelp();
     void openAboutDialog();
+    void openBraidsEditor();
 
 private:
     struct Move3082 {
@@ -52,12 +55,20 @@ private:
     static const QVector<Move3082> kMoves3082;
     static const QVector<Move3082> kMovesPentalpha78;
     static const QVector<Move3082> kMovesRoseDesVents97;
+    struct BraidDefinition {
+        QString code;
+        QString name;
+        QVector<Move3082> moves;
+    };
 
     Ui::MainWindow *ui = nullptr;
 
     int m_currentMoveIndex = 0;
     bool m_detailsExpanded = false;
+    bool m_fullAnimationRequested = false;
     QString m_selectedBraidCode = QStringLiteral("3082");
+    QVector<BraidDefinition> m_braids;
+    QString m_braidsJsonPath;
 
     QLabel *m_titleLabel = nullptr;
     QLabel *m_progressLabel = nullptr;
@@ -67,6 +78,7 @@ private:
     QLabel *m_compactLineLabel = nullptr;
 
     QPushButton *m_doneButton = nullptr;
+    QPushButton *m_animationButton = nullptr;
     QPushButton *m_restartButton = nullptr;
     QToolButton *m_toggleDetailsButton = nullptr;
     QToolButton *m_loadDrawingButton = nullptr;
@@ -82,11 +94,18 @@ private:
     void setupInterface();
     void configureMovesTable();
     void updateView();
+    void startCurrentMoveAnimation(bool fullPassage);
     void setDetailsExpanded(bool expanded);
     void updateCompactLine(const Move3082 *move, int totalMoves);
     const QVector<Move3082> &currentMoveSet() const;
     QString currentBraidTitle() const;
     void reloadCurrentBraid();
+    void loadBraidsCatalog();
+    bool saveBraidsCatalog(const QVector<BraidDefinition> &braids, QString *errorMessage = nullptr) const;
+    bool parseBraidsCatalog(const QByteArray &jsonData, QVector<BraidDefinition> *outBraids, QString *errorMessage = nullptr) const;
+    QVector<BraidDefinition> legacyBraidsCatalog() const;
+    const BraidDefinition *currentBraidDefinition() const;
+    void rebuildBraidSelector();
     bool openRegistrationDialog(bool trialExpired);
     bool ensureTrialAccess();
     QString currentRegisteredEmail() const;
@@ -96,3 +115,4 @@ private:
 };
 
 #endif // MAINWINDOW_H
+

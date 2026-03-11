@@ -34,6 +34,7 @@
 #include <QGraphicsView>
 #include <QPointF>
 #include <QLineF>
+#include <QRectF>
 #include <cstdint>
 #include <vector>
 
@@ -47,30 +48,78 @@ class WorkspaceView : public QGraphicsView
     Q_OBJECT
 
     // ------------------------------------------------------------
-    // Modes Esquisse / Traçage
+    // Modes Esquisse / TraÃƒÆ’Ã‚Â§age
     // ------------------------------------------------------------
 public slots:
     void enterSketchMode();
     void breakSketch();
     void enterTracingMode();
+    void zoomInView();
+    void zoomOutView();
+    void zoomResetView();
+    void triggerUndo();
+    void triggerRedo();
+    void rotateSelectionRight45();
+    void invertSelectionDirection();
 
 private:
     bool m_sketchMode = false;
 
     // --------------------------------------------------------
-    // Esquisse = clics snapés (pas de "crayon libre")
-    // - 1er clic : pose l’ancre
+    // Esquisse = clics snapÃƒÆ’Ã‚Â©s (pas de "crayon libre")
+    // - 1er clic : pose lÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ancre
     // - clics suivants : segment (ancre -> point) puis nouvelle ancre
-    // - Space : sectionner (perd l’ancre, on repart ailleurs)
+    // - Space : sectionner (perd lÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ancre, on repart ailleurs)
     // --------------------------------------------------------
     bool                    m_sketchHasAnchor = false;
     QPointF                 m_sketchAnchorMM;
     std::vector<QLineF>     m_sketchSegments;
     std::vector<QPointF>    m_sketchPoints;   // optionnel (trace/diagnostic)
 
+    struct SketchSnapshot
+    {
+        std::vector<QLineF> segments;
+        std::vector<QPointF> points;
+        bool hasAnchor = false;
+        QPointF anchor;
+        bool sketchBreak = false;
+    };
+
+    std::vector<SketchSnapshot> m_sketchUndoStack;
+    std::vector<SketchSnapshot> m_sketchRedoStack;
+
+    bool m_sketchSelecting = false;
+    bool m_hasSketchSelectionRect = false;
+    QPointF m_sketchSelectionStartMM;
+    QPointF m_sketchSelectionEndMM;
+    std::vector<int> m_sketchSelectedSegmentIndices;
+
+    bool m_sketchTransforming = false;
+    bool m_sketchTransformCopy = false;
+    bool m_sketchTransformUndoPrimed = false;
+    bool m_sketchTransformHadRect = false;
+    QPointF m_sketchTransformStartMM;
+    QPointF m_sketchTransformLastMM;
+    QPointF m_sketchTransformRectStartMM;
+    QPointF m_sketchTransformRectEndMM;
+    std::vector<int> m_sketchTransformIndices;
+    std::vector<QLineF> m_sketchTransformSourceSegments;
+    std::vector<QLineF> m_sketchTransformBaseSegments;
+
+    bool m_hasSketchClipboard = false;
+    QPointF m_sketchClipboardOriginMM;
+    std::vector<QLineF> m_sketchClipboardSegments;
+
+    bool m_hasLastSketchCursor = false;
+    QPointF m_lastSketchCursorMM;
+
 public:
     explicit WorkspaceView(QWidget* parent = nullptr);
     void setModel(Model::WorkspaceModel* model);
+    void setReadOnlyValidated(bool enabled);
+    bool isReadOnlyValidated() const { return m_readOnlyValidated; }
+    void copyModelGeometryToSketch();
+    void clearSketchOverlay();
 
     // --------------------------------------------------------
     // Animation
@@ -81,7 +130,7 @@ public:
     bool isAnimating() const;
 
     // Menu "Play Animation" (LK-STRICT) :
-    // - lance Serpent par défaut (pédagogique + joli)
+    // - lance Serpent par dÃƒÆ’Ã‚Â©faut (pÃƒÆ’Ã‚Â©dagogique + joli)
     void startAnimation();
 
     // --------------------------------------------------------
@@ -105,11 +154,35 @@ protected:
     void mouseReleaseEvent(QMouseEvent* e) override;
 
     void keyPressEvent(QKeyEvent* e) override;
+    void keyReleaseEvent(QKeyEvent* e) override;
     void wheelEvent(QWheelEvent* e) override;
     void resizeEvent(QResizeEvent* e) override;
 
 private:
     QPointF interpretPixelAsWorld(const QPoint& vp) const;
+
+    SketchSnapshot captureSketchSnapshot() const;
+    void restoreSketchSnapshot(const SketchSnapshot& snapshot);
+    void pushSketchUndoSnapshot();
+    bool undoSketch();
+    bool redoSketch();
+    void clearSketchHistory();
+
+    void clearSketchSelection();
+    QRectF currentSketchSelectionRectMM() const;
+    void updateSketchSelectionFromRect();
+    bool copySketchSelectionToClipboard();
+    bool pasteSketchClipboardAt(const QPointF& targetAbsMM);
+    bool deleteSketchSelection();
+
+    bool hasSketchSelectionAt(const QPointF& absMM) const;
+    bool beginSketchTransformDrag(const QPointF& startAbsMM, bool copyMode);
+    void updateSketchTransformDrag(const QPointF& currentAbsMM);
+    void finishSketchTransformDrag(const QPointF& endAbsMM);
+    void cancelSketchTransformDrag();
+
+    void rebuildSketchPointsFromSegments();
+    bool eraseSketchCoveredBySegment(const QLineF& tracedAbsSegment);
 
     QPointF m_previewStart;
     QPointF m_previewEnd;
@@ -120,9 +193,10 @@ private:
     bool m_sketchBreak = false;
 //    bool m_sketchMode  = false;
     //========================================================
-    // Mode Crossings (LK-STRICT) — Touche Insert
+    // Mode Crossings (LK-STRICT) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Touche Insert
     //========================================================
     bool m_crossingEditMode = false;
+    bool m_readOnlyValidated = false;
     int  m_activeCrossingIndex = -1;
 
     void enterCrossingEditMode();
@@ -133,7 +207,7 @@ private:
     QPoint activeCrossingGlobalTooltipPos() const;
 
     // ===============================
-    // Mémoire topologique absolue
+    // MÃƒÆ’Ã‚Â©moire topologique absolue
     // ===============================
     std::int64_t m_lastSnapXAbs = 0;
     bool         m_hasLastSnapXAbs = false;
@@ -167,9 +241,16 @@ private:
     Model::WorkspaceModel* m_model = nullptr;
 
     int m_ribbonOffsetMM = 0;
+    double m_zoomFactor = 1.0;
 };
 
 
 // ============================================================
 // End Of File
 // ============================================================
+
+
+
+
+
+};

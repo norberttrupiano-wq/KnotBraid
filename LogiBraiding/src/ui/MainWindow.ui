@@ -33,7 +33,7 @@
     <item>
      <widget class="QLabel" name="titleLabel">
       <property name="text">
-       <string>Tresse ABoK #3082 - Pentalpha a 61 brins</string>
+       <string>Tresse ABoK #3082 - Pentalpha à 61 brins</string>
       </property>
      </widget>
     </item>
@@ -85,7 +85,7 @@
       <item>
        <widget class="QPushButton" name="doneButton">
         <property name="text">
-         <string>Valider le mouvement</string>
+         <string>Effectuer le mouvement</string>
         </property>
        </widget>
       </item>
@@ -131,3 +131,5 @@
  <resources/>
  <connections/>
 </ui>
+
+

@@ -1,4 +1,4 @@
-// ============================================================
+﻿// ============================================================
 // LogiKnotting
 // Knot Design & Topology Software
 // -------------------------------------------------------------------------------------------------
@@ -49,10 +49,10 @@ namespace Model
 // ------------------------------------------------------------
 enum class Orientation : uint8_t
 {
-    Deg0,    // 0Â° / 180Â°
-    Deg45,   // 45Â° / 225Â°
-    Deg90,   // 90Â° / 270Â°
-    Deg135   // 135Â° / 315Â°
+    Deg0,    // 0Ã‚Â° / 180Ã‚Â°
+    Deg45,   // 45Ã‚Â° / 225Ã‚Â°
+    Deg90,   // 90Ã‚Â° / 270Ã‚Â°
+    Deg135   // 135Ã‚Â° / 315Ã‚Â°
 };
 
 // ------------------------------------------------------------
@@ -82,7 +82,7 @@ struct Crossing
 
     bool    newSegmentOver = true;
 
-    int     tour = 0;   // V2 â€” numÃ©ro de tour (franchissement jonction)
+    int     tour = 0;   // V2 Ã¢â‚¬â€ numÃƒÂ©ro de tour (franchissement jonction)
 };
 
 struct FileHistoryEntry
@@ -124,7 +124,10 @@ public:
     int ribbonLengthMM() const;
     int ribbonOffsetMM() const;
 
+    bool canValidateAsLocked() const;
+
     void rotateRibbonMM(int deltaMM);
+    void setRibbonLengthMM(int value);
     void setRibbonOffsetMM(int value);
 
     bool saveToFile(const QString& filePath) const;
@@ -152,8 +155,8 @@ private:
     void rebuildSegments();
     void rebuildCrossings();
 
-    // Recalcule m_pointsXAbs de faÃ§on dÃ©terministe Ã  partir de m_points
-    // (utilisÃ© au Load / Redo / changements de rÃ©fÃ©rentiel).
+    // Recalcule m_pointsXAbs de faÃƒÂ§on dÃƒÂ©terministe ÃƒÂ  partir de m_points
+    // (utilisÃƒÂ© au Load / Redo / changements de rÃƒÂ©fÃƒÂ©rentiel).
     void rebuildPointsXAbs();
 
     void syncTopologyStoreFromLegacy();
@@ -186,7 +189,7 @@ private:
     std::int64_t m_lastDesignActivityMS = 0;
     static constexpr std::int64_t kDesignIdleTimeoutMS = 15000;
 
-    // MIGRATION-PARALLEL: nouveau noyau en parallÃ¨le du legacy
+    // MIGRATION-PARALLEL: nouveau noyau en parallÃƒÂ¨le du legacy
     QString m_creatorAuthorId;
     QString m_createdAtUtcIso;
     QString m_lastModifiedByAuthorId;
@@ -202,4 +205,5 @@ private:
 // ============================================================
 // End Of File
 // ============================================================
+
 

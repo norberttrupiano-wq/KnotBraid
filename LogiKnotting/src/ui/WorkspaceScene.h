@@ -61,6 +61,10 @@ public:
     // Animation
     void setAnimationState(bool enabled, std::size_t completedSegments, double progress);
 
+    // Grid visibility (print profile)
+    void setGridVisible(bool visible);
+    bool isGridVisible() const { return m_gridVisible; }
+
     // Snap halo
     void updateSnapHalo(const QPointF& posMM);
     void hideSnapHalo();
@@ -143,6 +147,7 @@ private:
     bool m_animEnabled = false;
     std::size_t m_animCompletedSegments = 0;
     double m_animProgress = 1.0;
+    bool m_gridVisible = true;
 
     // Legacy perf cache
     std::size_t m_cacheSegmentsCount = 0;

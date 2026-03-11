@@ -29,6 +29,7 @@ if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
     qt_add_executable(LogiBraiding
         MANUAL_FINALIZATION
         ${PROJECT_SOURCES}
+        src/ui/MainWindow_copier.ui
     )
 # Define target properties for Android with Qt 6 as:
 #    set_property(TARGET LogiBraiding APPEND PROPERTY QT_ANDROID_PACKAGE_SOURCE_DIR

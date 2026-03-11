@@ -52,8 +52,19 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QPixmap>
+#include <QGraphicsScene>
+#include <QPageLayout>
+#include <QPageSetupDialog>
+#include <QPageSize>
+#include <QPainter>
+#include <QPen>
+#include <QPrintDialog>
+#include <QPrinter>
+#include <QPrintPreviewDialog>
 #include <QStatusBar>
+#include <QStyle>
 #include <QTimer>
+#include <QToolBar>
 #include <QVBoxLayout>
 #include <QTranslator>
 #include <QCryptographicHash>
@@ -67,8 +78,12 @@
 #include <QUrl>
 #include <QUrlQuery>
 
+#include <algorithm>
+#include <cmath>
+
 #include "../model/workspacemodel.h"
 #include "WorkspaceView.h"
+#include "WorkspaceScene.h"
 
 namespace
 {
@@ -484,6 +499,12 @@ MainWindow::MainWindow(QWidget* parent)
     m_translator = new QTranslator(this);
     m_defaultAppFont = qApp->font();
 
+    loadPrintProfileSettings();
+
+    m_printer = new QPrinter(QPrinter::HighResolution);
+    m_printer->setFullPage(false);
+    applyPrintProfileToPrinter();
+
     buildUi();
     buildMenusAndShortcuts();
     buildStatusBar();
@@ -494,7 +515,7 @@ MainWindow::MainWindow(QWidget* parent)
         m_lastAuditCheckpointSeconds = m_model->designTimeSeconds();
     }
 
-    statusBar()->showMessage(tr("PrÃªt"));
+    statusBar()->showMessage(tr("Pr\u00EAt"));
 
     if (!ensureTrialAccess())
         QTimer::singleShot(0, qApp, &QCoreApplication::quit);
@@ -504,13 +525,52 @@ MainWindow::~MainWindow()
 {
     delete m_view;
     delete m_model;
+    delete m_printer;
 }
-
 WorkspaceView* MainWindow::workspaceView() const
 {
     return m_view;
 }
 
+void MainWindow::loadPrintProfileSettings()
+{
+    QSettings s = appSettings();
+
+    const QString paper = s.value(QStringLiteral("print/profile/paper"), QStringLiteral("A4"))
+                              .toString()
+                              .trimmed()
+                              .toUpper();
+    m_printPaperA3 = (paper == QStringLiteral("A3"));
+
+    int overlap = s.value(QStringLiteral("print/profile/overlap_mm"), 8).toInt();
+    if (overlap != 5 && overlap != 8 && overlap != 10)
+        overlap = 8;
+    m_printOverlapMM = overlap;
+
+    m_printHideGrid = s.value(QStringLiteral("print/profile/hide_grid"), false).toBool();
+}
+
+void MainWindow::savePrintProfileSettings() const
+{
+    QSettings s = appSettings();
+    s.setValue(QStringLiteral("print/profile/paper"), m_printPaperA3 ? QStringLiteral("A3") : QStringLiteral("A4"));
+    s.setValue(QStringLiteral("print/profile/overlap_mm"), m_printOverlapMM);
+    s.setValue(QStringLiteral("print/profile/hide_grid"), m_printHideGrid);
+    s.sync();
+}
+
+void MainWindow::applyPrintProfileToPrinter()
+{
+    if (!m_printer)
+        return;
+
+    m_printer->setPageSize(QPageSize(m_printPaperA3 ? QPageSize::A3 : QPageSize::A4));
+}
+
+QString MainWindow::printPaperProfileLabel() const
+{
+    return m_printPaperA3 ? tr("A3") : tr("A4");
+}
 void MainWindow::buildUi()
 {
     m_model = new Model::WorkspaceModel();
@@ -556,7 +616,7 @@ void MainWindow::updateWindowTitle()
     const QString name =
         m_currentFilePath.isEmpty() ? tr("Noname.lkw") : QFileInfo(m_currentFilePath).fileName();
 
-    setWindowTitle(tr("LogiKnotting â€” %1").arg(name));
+    setWindowTitle(tr("LogiKnotting - %1").arg(name));
 }
 
 void MainWindow::buildMenusAndShortcuts()
@@ -570,46 +630,206 @@ void MainWindow::buildMenusAndShortcuts()
     }
     m_ropeActions.clear();
 
+    m_actionSave = nullptr;
+    m_actionValidation = nullptr;
+    m_actionCopy = nullptr;
+    m_actionPageSetup = nullptr;
+    m_actionPrintPreview = nullptr;
+    m_actionPrint = nullptr;
+    m_actionSketchMode = nullptr;
+    m_actionBreakSketch = nullptr;
+    m_actionTracingMode = nullptr;
+    m_actionRotateRight45 = nullptr;
+    m_actionInvertDirection = nullptr;
+    m_actionZoomIn = nullptr;
+    m_actionZoomOut = nullptr;
+    m_actionZoomReset = nullptr;
+    m_actionPlayAnimation = nullptr;
+
     QMenu* fileMenu = menuBar()->addMenu(tr("&Fichier"));
 
     QAction* newAction = fileMenu->addAction(tr("Nouveau"));
     connect(newAction, &QAction::triggered, this, &MainWindow::onNewFile);
 
-    QAction* actSave = fileMenu->addAction(tr("&Enregistrer"));
-    actSave->setShortcut(QKeySequence::Save);
-    connect(actSave, &QAction::triggered, this, &MainWindow::onSave);
+    m_actionSave = fileMenu->addAction(tr("&Enregistrer"));
+    m_actionSave->setShortcut(QKeySequence::Save);
+    connect(m_actionSave, &QAction::triggered, this, &MainWindow::onSave);
 
     QAction* actOpen = fileMenu->addAction(tr("&Ouvrir"));
     actOpen->setShortcut(QKeySequence::Open);
     connect(actOpen, &QAction::triggered, this, &MainWindow::onOpen);
 
+    m_actionPageSetup = fileMenu->addAction(tr("Mise en page..."));
+    connect(m_actionPageSetup, &QAction::triggered, this, &MainWindow::onPageSetup);
+
+    m_actionPrintPreview = fileMenu->addAction(tr("Apercu avant impression"));
+    connect(m_actionPrintPreview, &QAction::triggered, this, &MainWindow::onPrintPreview);
+
+    m_actionPrint = fileMenu->addAction(tr("Imprimer..."));
+    m_actionPrint->setShortcut(QKeySequence::Print);
+    connect(m_actionPrint, &QAction::triggered, this, &MainWindow::onPrint);
+
+    QMenu* printProfileMenu = fileMenu->addMenu(tr("Profil d'impression"));
+
+    QMenu* paperMenu = printProfileMenu->addMenu(tr("Format papier"));
+    QActionGroup* paperGroup = new QActionGroup(paperMenu);
+    paperGroup->setExclusive(true);
+
+    QAction* actPaperA4 = paperMenu->addAction(tr("A4"));
+    actPaperA4->setCheckable(true);
+    actPaperA4->setChecked(!m_printPaperA3);
+    paperGroup->addAction(actPaperA4);
+    connect(actPaperA4, &QAction::triggered, this, [this]() {
+        if (m_printPaperA3)
+        {
+            m_printPaperA3 = false;
+            applyPrintProfileToPrinter();
+            savePrintProfileSettings();
+            if (statusBar())
+                statusBar()->showMessage(tr("Profil impression : %1, recouvrement %2 mm")
+                                             .arg(printPaperProfileLabel())
+                                             .arg(m_printOverlapMM),
+                                         2500);
+        }
+    });
+
+    QAction* actPaperA3 = paperMenu->addAction(tr("A3"));
+    actPaperA3->setCheckable(true);
+    actPaperA3->setChecked(m_printPaperA3);
+    paperGroup->addAction(actPaperA3);
+    connect(actPaperA3, &QAction::triggered, this, [this]() {
+        if (!m_printPaperA3)
+        {
+            m_printPaperA3 = true;
+            applyPrintProfileToPrinter();
+            savePrintProfileSettings();
+            if (statusBar())
+                statusBar()->showMessage(tr("Profil impression : %1, recouvrement %2 mm")
+                                             .arg(printPaperProfileLabel())
+                                             .arg(m_printOverlapMM),
+                                         2500);
+        }
+    });
+
+    QMenu* overlapMenu = printProfileMenu->addMenu(tr("Recouvrement"));
+    QActionGroup* overlapGroup = new QActionGroup(overlapMenu);
+    overlapGroup->setExclusive(true);
+
+    for (const int mm : {5, 8, 10})
+    {
+        QAction* act = overlapMenu->addAction(tr("%1 mm").arg(mm));
+        act->setCheckable(true);
+        act->setChecked(m_printOverlapMM == mm);
+        overlapGroup->addAction(act);
+
+        connect(act, &QAction::triggered, this, [this, mm]() {
+            if (m_printOverlapMM == mm)
+                return;
+
+            m_printOverlapMM = mm;
+            savePrintProfileSettings();
+            if (statusBar())
+                statusBar()->showMessage(tr("Profil impression : %1, recouvrement %2 mm")
+                                             .arg(printPaperProfileLabel())
+                                             .arg(m_printOverlapMM),
+                                         2500);
+        });
+    }
+
+    printProfileMenu->addSeparator();
+
+    QAction* actHideGrid = printProfileMenu->addAction(tr("Sans grille (points et segments)"));
+    actHideGrid->setCheckable(true);
+    actHideGrid->setChecked(m_printHideGrid);
+    connect(actHideGrid, &QAction::toggled, this, [this](bool checked) {
+        m_printHideGrid = checked;
+        savePrintProfileSettings();
+        if (statusBar())
+            statusBar()->showMessage(tr("Profil impression : %1")
+                                         .arg(m_printHideGrid ? tr("sans grille") : tr("avec grille")),
+                                     2500);
+    });
+
     fileMenu->addSeparator();
+
+    m_actionValidation = fileMenu->addAction(tr("Validation"));
+    connect(m_actionValidation, &QAction::triggered, this, &MainWindow::onValidate);
+
+    m_actionCopy = fileMenu->addAction(tr("Copie"));
+    connect(m_actionCopy, &QAction::triggered, this, &MainWindow::onCopyFromValidated);
+
+    fileMenu->addSeparator();
+
     QAction* filePropsAction = fileMenu->addAction(tr("Proprietes du fichier"));
     connect(filePropsAction, &QAction::triggered, this, &MainWindow::showFilePropertiesDialog);
 
     const QString viewMenuTitle = (m_currentLanguageCode == QStringLiteral("fr")) ? tr("Vue") : tr("View");
     QMenu* viewMenu = menuBar()->addMenu(viewMenuTitle);
+
+    m_actionZoomIn = viewMenu->addAction(tr("Zoom +"));
+    m_actionZoomIn->setShortcut(QKeySequence(QStringLiteral("Ctrl++")));
+    connect(m_actionZoomIn, &QAction::triggered, this, [this]() {
+        if (m_view)
+            m_view->zoomInView();
+    });
+
+    m_actionZoomOut = viewMenu->addAction(tr("Zoom -"));
+    m_actionZoomOut->setShortcut(QKeySequence(QStringLiteral("Ctrl+-")));
+    connect(m_actionZoomOut, &QAction::triggered, this, [this]() {
+        if (m_view)
+            m_view->zoomOutView();
+    });
+
+    m_actionZoomReset = viewMenu->addAction(tr("Zoom 100%"));
+    m_actionZoomReset->setShortcut(QKeySequence(QStringLiteral("Ctrl+0")));
+    connect(m_actionZoomReset, &QAction::triggered, this, [this]() {
+        if (m_view)
+            m_view->zoomResetView();
+    });
+
+    viewMenu->addSeparator();
+
     m_actionPlayAnimation = viewMenu->addAction(tr("Play Animation"));
     connect(m_actionPlayAnimation, &QAction::triggered, this, [this]() {
         if (m_view)
             m_view->startAnimation();
     });
-
     QMenu* sketchMenu = menuBar()->addMenu(tr("Esquisse"));
 
-    QAction* actSketchMode = sketchMenu->addAction(tr("Mode Esquisse"));
-    actSketchMode->setShortcut(QKeySequence("Ctrl+E"));
-    connect(actSketchMode, &QAction::triggered, m_view, &WorkspaceView::enterSketchMode);
+    m_actionRotateRight45 = sketchMenu->addAction(style()->standardIcon(QStyle::SP_BrowserReload), tr("Rotation de 45 a droite"));
+    connect(m_actionRotateRight45, &QAction::triggered, m_view, &WorkspaceView::rotateSelectionRight45);
 
-    QAction* actBreakSketch = sketchMenu->addAction(tr("Sectionner lâ€™esquisse"));
-    actBreakSketch->setShortcut(QKeySequence(Qt::Key_Space));
-    connect(actBreakSketch, &QAction::triggered, m_view, &WorkspaceView::breakSketch);
+    m_actionInvertDirection = sketchMenu->addAction(style()->standardIcon(QStyle::SP_ArrowBack), tr("Inversion de sens"));
+    connect(m_actionInvertDirection, &QAction::triggered, m_view, &WorkspaceView::invertSelectionDirection);
 
     sketchMenu->addSeparator();
 
-    QAction* actTracingMode = sketchMenu->addAction(tr("Mode TraÃ§age"));
-    actTracingMode->setShortcut(QKeySequence("Ctrl+B"));
-    connect(actTracingMode, &QAction::triggered, m_view, &WorkspaceView::enterTracingMode);
+    m_actionSketchMode = sketchMenu->addAction(tr("Mode Esquisse"));
+    m_actionSketchMode->setShortcut(QKeySequence("Ctrl+E"));
+    connect(m_actionSketchMode, &QAction::triggered, m_view, &WorkspaceView::enterSketchMode);
+
+    m_actionBreakSketch = sketchMenu->addAction(tr("Sectionner l'esquisse"));
+    m_actionBreakSketch->setShortcut(QKeySequence(Qt::Key_Space));
+    connect(m_actionBreakSketch, &QAction::triggered, m_view, &WorkspaceView::breakSketch);
+
+    sketchMenu->addSeparator();
+
+    m_actionTracingMode = sketchMenu->addAction(tr("Mode Tracage"));
+    m_actionTracingMode->setShortcut(QKeySequence("Ctrl+B"));
+    connect(m_actionTracingMode, &QAction::triggered, m_view, &WorkspaceView::enterTracingMode);
+
+    if (!m_editToolBar)
+    {
+        m_editToolBar = addToolBar(tr("Edition rapide"));
+        m_editToolBar->setObjectName(QStringLiteral("editQuickToolbar"));
+        m_editToolBar->setMovable(false);
+        m_editToolBar->setFloatable(false);
+        m_editToolBar->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    }
+
+    m_editToolBar->clear();
+    m_editToolBar->addAction(m_actionRotateRight45);
+    m_editToolBar->addAction(m_actionInvertDirection);
 
     QMenu* ropesMenu = menuBar()->addMenu(tr("Cordes"));
     m_ropeActionGroup = new QActionGroup(this);
@@ -645,8 +865,9 @@ void MainWindow::buildMenusAndShortcuts()
     }
 
     buildLanguageMenu();
+    setReadOnlyUiState(m_currentFileValidated);
+    updateFileActionsState();
 }
-
 void MainWindow::buildLanguageMenu()
 {
     QMenu* settingsMenu = menuBar()->addMenu(tr("Param\u00E8tres"));
@@ -1123,6 +1344,60 @@ void MainWindow::refreshStatusBar()
         m_labelSnap->setText(tr("Position X: 0.0   Y: 0.0"));
 
     refreshActiveRopeUi();
+    updateFileActionsState();
+}
+
+void MainWindow::updateFileActionsState()
+{
+    if (!m_model)
+        return;
+
+    const bool canValidate = !m_currentFileValidated && m_model->canValidateAsLocked();
+
+    if (m_actionSave)
+        m_actionSave->setEnabled(!m_currentFileValidated);
+
+    if (m_actionValidation)
+        m_actionValidation->setEnabled(canValidate);
+
+    if (m_actionCopy)
+        m_actionCopy->setEnabled(m_currentFileValidated);
+}
+
+void MainWindow::setReadOnlyUiState(bool enabled)
+{
+    m_currentFileValidated = enabled;
+
+    if (m_view)
+    {
+        if (enabled)
+            m_view->enterTracingMode();
+
+        m_view->setReadOnlyValidated(enabled);
+    }
+
+    if (m_actionSketchMode)
+        m_actionSketchMode->setEnabled(!enabled);
+
+    if (m_actionBreakSketch)
+        m_actionBreakSketch->setEnabled(!enabled);
+
+    if (m_actionTracingMode)
+        m_actionTracingMode->setEnabled(!enabled);
+
+    if (m_actionRotateRight45)
+        m_actionRotateRight45->setEnabled(!enabled);
+
+    if (m_actionInvertDirection)
+        m_actionInvertDirection->setEnabled(!enabled);
+
+    for (QAction* action : m_ropeActions)
+    {
+        if (action)
+            action->setEnabled(!enabled);
+    }
+
+    updateFileActionsState();
 }
 
 void MainWindow::onSnapMoved(const QPointF& posMM)
@@ -1143,7 +1418,7 @@ void MainWindow::onNewFile()
         QMessageBox::question(
             this,
             tr("Nouveau document"),
-            tr("CrÃ©er un nouveau document ?\n\nLes modifications non sauvegardÃ©es seront perdues."),
+            tr("Creer un nouveau document ?\n\nLes modifications non sauvegardees seront perdues."),
             QMessageBox::Yes | QMessageBox::No
         );
 
@@ -1155,11 +1430,16 @@ void MainWindow::onNewFile()
     m_lastAuditCheckpointSeconds = m_model->designTimeSeconds();
 
     m_currentFilePath.clear();
+    setReadOnlyUiState(false);
     updateWindowTitle();
 
     if (m_view)
+    {
         m_view->syncFromModel();
+        m_view->clearSketchOverlay();
+    }
 
+    refreshStatusBar();
     refreshActiveRopeUi();
 }
 
@@ -1168,6 +1448,15 @@ void MainWindow::onSave()
     if (!m_model)
         return;
 
+    if (m_currentFileValidated)
+    {
+        QMessageBox::information(
+            this,
+            tr("Fichier valide"),
+            tr("Un fichier .lkv est verrouille. Utilisez d'abord 'Copie' pour creer un fichier .lkw editable."));
+        return;
+    }
+
     QString path = m_currentFilePath;
 
     if (path.isEmpty())
@@ -1175,13 +1464,16 @@ void MainWindow::onSave()
         path = QFileDialog::getSaveFileName(
             this,
             tr("Enregistrer"),
-            QString(),
-            tr("LogiKnotting (*.lkv)")
+            tr("Noname.lkw"),
+            tr("LogiKnotting travail (*.lkw)")
         );
 
         if (path.isEmpty())
             return;
     }
+
+    if (!path.endsWith(QStringLiteral(".lkw"), Qt::CaseInsensitive))
+        path += QStringLiteral(".lkw");
 
     const std::int64_t nowSeconds = m_model->designTimeSeconds();
     std::int64_t sessionSeconds = nowSeconds - m_lastAuditCheckpointSeconds;
@@ -1193,16 +1485,444 @@ void MainWindow::onSave()
 
     if (!m_model->saveToFile(path))
     {
-        QMessageBox::warning(this, tr("Erreur"), tr("Ã‰chec de l'enregistrement."));
+        QMessageBox::warning(this, tr("Erreur"), tr("Echec de l'enregistrement."));
         return;
     }
 
     m_currentFilePath = path;
+    setReadOnlyUiState(false);
     updateWindowTitle();
 
-    statusBar()->showMessage(tr("EnregistrÃ© : %1").arg(path), 3000);
+    statusBar()->showMessage(tr("Enregistre : %1").arg(path), 3000);
 }
 
+void MainWindow::onValidate()
+{
+    if (!m_model)
+        return;
+
+    if (m_currentFileValidated)
+    {
+        QMessageBox::information(this, tr("Validation"), tr("Ce fichier est deja valide (.lkv)."));
+        return;
+    }
+
+    if (!m_model->canValidateAsLocked())
+    {
+        QMessageBox::warning(
+            this,
+            tr("Validation impossible"),
+            tr("Toutes les cordes doivent etre fermees avant validation."));
+        return;
+    }
+
+    QString suggestion = tr("Noname.lkv");
+    if (!m_currentFilePath.isEmpty())
+    {
+        const QFileInfo fi(m_currentFilePath);
+        suggestion = fi.absolutePath() + QDir::separator() + fi.completeBaseName() + QStringLiteral(".lkv");
+    }
+
+    QString path = QFileDialog::getSaveFileName(
+        this,
+        tr("Validation"),
+        suggestion,
+        tr("LogiKnotting valide (*.lkv)")
+    );
+
+    if (path.isEmpty())
+        return;
+
+    if (!path.endsWith(QStringLiteral(".lkv"), Qt::CaseInsensitive))
+        path += QStringLiteral(".lkv");
+
+    const std::int64_t nowSeconds = m_model->designTimeSeconds();
+    std::int64_t sessionSeconds = nowSeconds - m_lastAuditCheckpointSeconds;
+    if (sessionSeconds < 0)
+        sessionSeconds = 0;
+
+    m_model->appendAuditOnSave(currentAuthorId(), sessionSeconds);
+    m_lastAuditCheckpointSeconds = nowSeconds;
+
+    if (!m_model->saveToFile(path))
+    {
+        QMessageBox::warning(this, tr("Erreur"), tr("Echec de l'enregistrement du fichier valide."));
+        return;
+    }
+
+    m_currentFilePath = path;
+    setReadOnlyUiState(true);
+    updateWindowTitle();
+
+    refreshStatusBar();
+    refreshActiveRopeUi();
+
+    statusBar()->showMessage(tr("Valide : %1").arg(path), 3000);
+}
+
+void MainWindow::onCopyFromValidated()
+{
+    if (!m_model || !m_view)
+        return;
+
+    if (!m_currentFileValidated)
+        return;
+
+    m_view->copyModelGeometryToSketch();
+
+    m_model->initializeAuditForNewDocument(currentAuthorId());
+    m_lastAuditCheckpointSeconds = m_model->designTimeSeconds();
+
+    m_currentFilePath.clear();
+    setReadOnlyUiState(false);
+    updateWindowTitle();
+
+    refreshStatusBar();
+    refreshActiveRopeUi();
+
+    statusBar()->showMessage(tr("Copie creee. Mode Tracage actif, enregistrez sous Noname.lkw."), 4000);
+}
+
+QRectF MainWindow::computePrintSourceRectMM() const
+{
+    if (!m_model)
+        return QRectF(0.0, 0.0, 280.0, 120.0);
+
+    bool hasData = false;
+    double minX = 0.0;
+    double minY = 0.0;
+    double maxX = 0.0;
+    double maxY = 0.0;
+
+    auto includePoint = [&](double x, double y)
+    {
+        if (!hasData)
+        {
+            minX = maxX = x;
+            minY = maxY = y;
+            hasData = true;
+            return;
+        }
+
+        minX = std::min(minX, x);
+        minY = std::min(minY, y);
+        maxX = std::max(maxX, x);
+        maxY = std::max(maxY, y);
+    };
+
+    const auto& topo = m_model->topologySnapshot();
+    for (const auto& rope : topo.ropes)
+    {
+        for (const auto& pt : rope.points)
+            includePoint(static_cast<double>(pt.xAbs), static_cast<double>(pt.y));
+    }
+
+    if (!hasData)
+    {
+        for (const auto& seg : m_model->segments())
+        {
+            includePoint(seg.x1(), seg.y1());
+            includePoint(seg.x2(), seg.y2());
+        }
+    }
+
+    if (!hasData)
+    {
+        for (const auto& p : m_model->points())
+            includePoint(p.x(), p.y());
+    }
+
+    if (!hasData)
+    {
+        const double fallbackWidth = std::max(80, m_model->ribbonLengthMM());
+        return QRectF(0.0, 0.0, fallbackWidth, 120.0);
+    }
+
+    constexpr double kPaddingMM = 8.0;
+    minX -= kPaddingMM;
+    minY -= kPaddingMM;
+    maxX += kPaddingMM;
+    maxY += kPaddingMM;
+
+    if ((maxX - minX) < 20.0)
+    {
+        const double cx = 0.5 * (maxX + minX);
+        minX = cx - 10.0;
+        maxX = cx + 10.0;
+    }
+
+    if ((maxY - minY) < 20.0)
+    {
+        const double cy = 0.5 * (maxY + minY);
+        minY = cy - 10.0;
+        maxY = cy + 10.0;
+    }
+
+    return QRectF(QPointF(minX, minY), QPointF(maxX, maxY)).normalized();
+}
+
+void MainWindow::drawCutAndGlueMarks(QPainter* painter,
+                                     const QRectF& tileRectPx,
+                                     bool hasLeftOverlap,
+                                     bool hasTopOverlap,
+                                     double overlapPx,
+                                     double cutMarkPx) const
+{
+    if (!painter)
+        return;
+
+    QPen cutPen(QColor(15, 15, 15));
+    cutPen.setWidthF(0.9);
+    painter->setPen(cutPen);
+
+    auto drawCorner = [&](double x, double y, double sx, double sy)
+    {
+        painter->drawLine(QPointF(x, y), QPointF(x + sx * cutMarkPx, y));
+        painter->drawLine(QPointF(x, y), QPointF(x, y + sy * cutMarkPx));
+    };
+
+    drawCorner(tileRectPx.left(), tileRectPx.top(), -1.0, -1.0);
+    drawCorner(tileRectPx.right(), tileRectPx.top(), +1.0, -1.0);
+    drawCorner(tileRectPx.left(), tileRectPx.bottom(), -1.0, +1.0);
+    drawCorner(tileRectPx.right(), tileRectPx.bottom(), +1.0, +1.0);
+
+    QPen gluePen(QColor(160, 90, 10, 180));
+    gluePen.setStyle(Qt::DashLine);
+    gluePen.setWidthF(0.8);
+    painter->setPen(gluePen);
+
+    if (hasLeftOverlap && overlapPx > 0.5)
+    {
+        const double x = tileRectPx.left() + overlapPx;
+        painter->drawLine(QPointF(x, tileRectPx.top()), QPointF(x, tileRectPx.bottom()));
+    }
+
+    if (hasTopOverlap && overlapPx > 0.5)
+    {
+        const double y = tileRectPx.top() + overlapPx;
+        painter->drawLine(QPointF(tileRectPx.left(), y), QPointF(tileRectPx.right(), y));
+    }
+}
+
+void MainWindow::renderPrintDocument(QPrinter* printer)
+{
+    if (!printer || !m_view || !m_view->scene())
+        return;
+
+    WorkspaceScene* workspaceScene = qobject_cast<WorkspaceScene*>(m_view->scene());
+    const bool previousGridVisible = workspaceScene ? workspaceScene->isGridVisible() : true;
+    const bool hideGridForPrint = (workspaceScene && m_printHideGrid && previousGridVisible);
+    if (hideGridForPrint)
+        workspaceScene->setGridVisible(false);
+
+    const QRectF sourceRectMM = computePrintSourceRectMM();
+    if (sourceRectMM.width() <= 0.0 || sourceRectMM.height() <= 0.0)
+    {
+        if (hideGridForPrint)
+            workspaceScene->setGridVisible(previousGridVisible);
+        return;
+    }
+
+    QRectF paintRectMM = printer->pageLayout().paintRect(QPageLayout::Millimeter);
+    if (paintRectMM.width() <= 1.0 || paintRectMM.height() <= 1.0)
+        paintRectMM = QRectF(10.0, 10.0, 190.0, 277.0);
+
+    constexpr double kCutMarkMM = 4.0;
+    constexpr double kInsetMM = 2.0;
+    constexpr double kFooterMM = 6.0;
+    const double glueOverlapMM = static_cast<double>(m_printOverlapMM);
+
+    QRectF tileAreaMM = paintRectMM.adjusted(kCutMarkMM + kInsetMM,
+                                             kCutMarkMM + kInsetMM,
+                                             -(kCutMarkMM + kInsetMM),
+                                             -(kCutMarkMM + kInsetMM + kFooterMM));
+
+    if (tileAreaMM.width() < 20.0 || tileAreaMM.height() < 20.0)
+        tileAreaMM = paintRectMM.adjusted(2.0, 2.0, -2.0, -2.0);
+
+    const double tileWidthMM = tileAreaMM.width();
+    const double tileHeightMM = tileAreaMM.height();
+
+    const double stepXMM = std::max(1.0, tileWidthMM - glueOverlapMM);
+    const double stepYMM = std::max(1.0, tileHeightMM - glueOverlapMM);
+
+    const double sourceWidthMM = sourceRectMM.width();
+    const double sourceHeightMM = sourceRectMM.height();
+
+    const int cols = (sourceWidthMM <= tileWidthMM)
+        ? 1
+        : static_cast<int>(std::ceil((sourceWidthMM - tileWidthMM) / stepXMM)) + 1;
+    const int rows = (sourceHeightMM <= tileHeightMM)
+        ? 1
+        : static_cast<int>(std::ceil((sourceHeightMM - tileHeightMM) / stepYMM)) + 1;
+
+    QPainter painter(printer);
+    if (!painter.isActive())
+    {
+        if (hideGridForPrint)
+            workspaceScene->setGridVisible(previousGridVisible);
+        return;
+    }
+
+    painter.setRenderHint(QPainter::Antialiasing, true);
+
+    const double pxPerMmX = static_cast<double>(printer->logicalDpiX()) / 25.4;
+    const double pxPerMmY = static_cast<double>(printer->logicalDpiY()) / 25.4;
+
+    auto mmRectToPx = [&](const QRectF& r)
+    {
+        return QRectF(r.x() * pxPerMmX,
+                      r.y() * pxPerMmY,
+                      r.width() * pxPerMmX,
+                      r.height() * pxPerMmY);
+    };
+
+    int pageIndex = 0;
+    const int totalPages = rows * cols;
+
+    for (int row = 0; row < rows; ++row)
+    {
+        for (int col = 0; col < cols; ++col)
+        {
+            if (pageIndex > 0)
+                printer->newPage();
+
+            painter.fillRect(mmRectToPx(paintRectMM), Qt::white);
+
+            double srcLeft = sourceRectMM.left() + static_cast<double>(col) * stepXMM;
+            double srcTop = sourceRectMM.top() + static_cast<double>(row) * stepYMM;
+
+            if (sourceWidthMM > tileWidthMM && (srcLeft + tileWidthMM) > sourceRectMM.right())
+                srcLeft = sourceRectMM.right() - tileWidthMM;
+            if (sourceHeightMM > tileHeightMM && (srcTop + tileHeightMM) > sourceRectMM.bottom())
+                srcTop = sourceRectMM.bottom() - tileHeightMM;
+
+            const double srcWidth = std::min(tileWidthMM, sourceRectMM.right() - srcLeft);
+            const double srcHeight = std::min(tileHeightMM, sourceRectMM.bottom() - srcTop);
+            if (srcWidth <= 0.0 || srcHeight <= 0.0)
+            {
+                ++pageIndex;
+                continue;
+            }
+
+            const QRectF srcTileMM(srcLeft, srcTop, srcWidth, srcHeight);
+            const QRectF dstTileMM(tileAreaMM.left(), tileAreaMM.top(), srcWidth, srcHeight);
+            const QRectF dstTilePx = mmRectToPx(dstTileMM);
+
+            m_view->scene()->render(&painter, dstTilePx, srcTileMM, Qt::IgnoreAspectRatio);
+
+            const double overlapPxX = std::min(glueOverlapMM * pxPerMmX, dstTilePx.width());
+            const double overlapPxY = std::min(glueOverlapMM * pxPerMmY, dstTilePx.height());
+
+            if (col > 0 && overlapPxX > 0.5)
+            {
+                QRectF glueLeft = dstTilePx;
+                glueLeft.setWidth(overlapPxX);
+                painter.fillRect(glueLeft, QColor(255, 220, 120, 70));
+            }
+
+            if (row > 0 && overlapPxY > 0.5)
+            {
+                QRectF glueTop = dstTilePx;
+                glueTop.setHeight(overlapPxY);
+                painter.fillRect(glueTop, QColor(255, 220, 120, 70));
+            }
+
+            const double overlapGuidePx = std::min(overlapPxX, overlapPxY);
+            drawCutAndGlueMarks(&painter,
+                                dstTilePx,
+                                col > 0,
+                                row > 0,
+                                overlapGuidePx,
+                                std::min(pxPerMmX, pxPerMmY) * kCutMarkMM);
+
+            QFont footerFont = painter.font();
+            footerFont.setPointSizeF(std::max(7.0, footerFont.pointSizeF() - 1.0));
+            painter.setFont(footerFont);
+            painter.setPen(QColor(70, 70, 70));
+
+            const QRectF footerRectPx = mmRectToPx(
+                QRectF(paintRectMM.left(),
+                       paintRectMM.bottom() - kFooterMM,
+                       paintRectMM.width(),
+                       kFooterMM));
+
+            const QString footer = tr("Impression mosaique %1/%2 - tuile %3x%4 - recouvrement %5 mm")
+                .arg(pageIndex + 1)
+                .arg(totalPages)
+                .arg(col + 1)
+                .arg(row + 1)
+                .arg(glueOverlapMM, 0, 'f', 0);
+
+            painter.drawText(footerRectPx, Qt::AlignRight | Qt::AlignVCenter, footer);
+
+            ++pageIndex;
+        }
+    }
+
+    if (hideGridForPrint)
+        workspaceScene->setGridVisible(previousGridVisible);
+}
+
+void MainWindow::onPageSetup()
+{
+    if (!m_printer)
+        return;
+
+    QPageSetupDialog dialog(m_printer, this);
+    dialog.setWindowTitle(tr("Mise en page"));
+
+    if (dialog.exec() == QDialog::Accepted)
+    {
+        const QPageSize::PageSizeId selectedId = m_printer->pageLayout().pageSize().id();
+        if (selectedId == QPageSize::A3)
+            m_printPaperA3 = true;
+        else if (selectedId == QPageSize::A4)
+            m_printPaperA3 = false;
+        else
+            applyPrintProfileToPrinter();
+
+        savePrintProfileSettings();
+        buildMenusAndShortcuts();
+
+        if (statusBar())
+            statusBar()->showMessage(tr("Profil impression : %1, recouvrement %2 mm")
+                                         .arg(printPaperProfileLabel())
+                                         .arg(m_printOverlapMM),
+                                     3000);
+    }
+}
+
+void MainWindow::onPrintPreview()
+{
+    if (!m_printer || !m_view || !m_view->scene())
+        return;
+
+    QPrintPreviewDialog preview(m_printer, this);
+    preview.setWindowTitle(tr("Apercu avant impression"));
+
+    connect(&preview, &QPrintPreviewDialog::paintRequested,
+            this, &MainWindow::renderPrintDocument);
+
+    preview.exec();
+}
+
+void MainWindow::onPrint()
+{
+    if (!m_printer || !m_view || !m_view->scene())
+        return;
+
+    QPrintDialog dialog(m_printer, this);
+    dialog.setWindowTitle(tr("Imprimer"));
+
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+
+    renderPrintDocument(m_printer);
+
+    if (statusBar())
+        statusBar()->showMessage(tr("Impression envoyee"), 2500);
+}
 void MainWindow::onOpen()
 {
     if (!m_model)
@@ -1212,7 +1932,7 @@ void MainWindow::onOpen()
         this,
         tr("Ouvrir"),
         QString(),
-        tr("LogiKnotting (*.lk?)")
+        tr("LogiKnotting (*.lkw *.lkv)")
     );
 
     if (path.isEmpty())
@@ -1223,12 +1943,17 @@ void MainWindow::onOpen()
         QMessageBox::warning(
             this,
             tr("Erreur"),
-            tr("Echec du chargement.\nFichier non conforme ou modifié manuellement."));
+            tr("Echec du chargement.\nFichier non conforme ou modifie manuellement."));
         return;
     }
 
+    const bool validatedFile = path.endsWith(QStringLiteral(".lkv"), Qt::CaseInsensitive);
+
     m_currentFilePath = path;
     m_lastAuditCheckpointSeconds = m_model->designTimeSeconds();
+    setReadOnlyUiState(validatedFile);
+    if (m_view)
+        m_view->clearSketchOverlay();
     updateWindowTitle();
 
     if (m_view && m_view->scene())
@@ -1246,5 +1971,21 @@ void MainWindow::onOpen()
 // ============================================================
 // End Of File
 // ============================================================
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 

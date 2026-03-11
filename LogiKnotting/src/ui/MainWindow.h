@@ -1,4 +1,4 @@
-﻿// ============================================================
+// ============================================================
 // LogiKnotting
 // Knot Design & Topology Software
 // -------------------------------------------------------------------------------------------------
@@ -26,7 +26,7 @@
 // Repository  : https://github.com/norberttrupiano-wq/LogiKnotting
 // File        : src/ui/MainWindow.h
 // Created     : 2026-03-06
-// Updated     : 2026-03-07
+// Updated     : 2026-03-11
 // Description :
 // ============================================================
 #pragma once
@@ -34,6 +34,7 @@
 #include <QMainWindow>
 #include <QPointF>
 #include <QFont>
+#include <QRectF>
 
 #include <cstdint>
 #include <vector>
@@ -41,6 +42,9 @@
 class QAction;
 class QActionGroup;
 class QLabel;
+class QPainter;
+class QPrinter;
+class QToolBar;
 class QTranslator;
 class WorkspaceView;
 
@@ -87,8 +91,29 @@ private:
     void onNewFile();
     void onSave();
     void onOpen();
+    void onValidate();
+    void onCopyFromValidated();
+    void onPageSetup();
+    void onPrintPreview();
+    void onPrint();
+    void updateFileActionsState();
+    void setReadOnlyUiState(bool enabled);
+    void loadPrintProfileSettings();
+    void savePrintProfileSettings() const;
+    void applyPrintProfileToPrinter();
+    QString printPaperProfileLabel() const;
 
-    // Signal reÃ§u depuis WorkspaceView
+    // Impression
+    QRectF computePrintSourceRectMM() const;
+    void renderPrintDocument(QPrinter* printer);
+    void drawCutAndGlueMarks(QPainter* painter,
+                             const QRectF& tileRectPx,
+                             bool hasLeftOverlap,
+                             bool hasTopOverlap,
+                             double overlapPx,
+                             double cutMarkPx) const;
+
+    // Signal recu depuis WorkspaceView
     void onSnapMoved(const QPointF& posMM);
 
 private:
@@ -96,7 +121,22 @@ private:
     QLabel* m_labelSpires = nullptr;
     QLabel* m_labelActiveRope = nullptr;
     QLabel* m_labelMode = nullptr;
+    QAction* m_actionSave = nullptr;
+    QAction* m_actionValidation = nullptr;
+    QAction* m_actionCopy = nullptr;
+    QAction* m_actionPageSetup = nullptr;
+    QAction* m_actionPrintPreview = nullptr;
+    QAction* m_actionPrint = nullptr;
+    QAction* m_actionSketchMode = nullptr;
+    QAction* m_actionBreakSketch = nullptr;
+    QAction* m_actionTracingMode = nullptr;
+    QAction* m_actionRotateRight45 = nullptr;
+    QAction* m_actionInvertDirection = nullptr;
+    QAction* m_actionZoomIn = nullptr;
+    QAction* m_actionZoomOut = nullptr;
+    QAction* m_actionZoomReset = nullptr;
     QAction* m_actionPlayAnimation = nullptr;
+    QToolBar* m_editToolBar = nullptr;
     QActionGroup* m_ropeActionGroup = nullptr;
     std::vector<QAction*> m_ropeActions;
 
@@ -106,7 +146,12 @@ private:
 
     WorkspaceView* m_view = nullptr;
     Model::WorkspaceModel* m_model = nullptr;
+    QPrinter* m_printer = nullptr;
+    bool m_printPaperA3 = false;
+    int m_printOverlapMM = 8;
+    bool m_printHideGrid = false;
     QString m_currentFilePath;
+    bool m_currentFileValidated = false;
     std::int64_t m_lastAuditCheckpointSeconds = 0;
     QLabel* m_labelSnap = nullptr;
     QLabel* m_labelRibbon = nullptr;

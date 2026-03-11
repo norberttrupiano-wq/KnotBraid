@@ -15,8 +15,12 @@
 #include <QDir>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QFont>
 #include <QFormLayout>
 #include <QHeaderView>
@@ -32,7 +36,9 @@
 #include <QSettings>
 #include <QSignalBlocker>
 #include <QShortcut>
+#include <QSaveFile>
 #include <QSizePolicy>
+#include <QStandardPaths>
 #include <QStatusBar>
 #include <QTableWidget>
 #include <QTableWidgetItem>
@@ -43,6 +49,8 @@
 #include <QVector>
 #include <QVBoxLayout>
 #include <QWidget>
+
+#include <algorithm>
 
 namespace {
 
@@ -363,34 +371,387 @@ const QVector<MainWindow::Move3082> MainWindow::kMovesRoseDesVents97 = {
     {64, 64, 1, 30, 60, u'P', QString(), QString()},
 };
 
+QVector<MainWindow::BraidDefinition> MainWindow::legacyBraidsCatalog() const
+{
+    QVector<BraidDefinition> out;
+
+    out.push_back(BraidDefinition{
+        QStringLiteral("3082"),
+        QStringLiteral("ABoK #3082 - Pentalpha a 61 brins"),
+        kMoves3082
+    });
+
+    out.push_back(BraidDefinition{
+        QStringLiteral("3082_2_78"),
+        QStringLiteral("ABoK #3082-2 - Pentalpha a 78 brins"),
+        kMovesPentalpha78
+    });
+
+    out.push_back(BraidDefinition{
+        QStringLiteral("3082_3_rose97"),
+        QStringLiteral("ABoK #3082-3 - Rose des vents a 97 brins"),
+        kMovesRoseDesVents97
+    });
+
+    return out;
+}
+
+bool MainWindow::parseBraidsCatalog(const QByteArray &jsonData,
+                                    QVector<BraidDefinition> *outBraids,
+                                    QString *errorMessage) const
+{
+    if (!outBraids) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("Sortie invalide");
+        }
+        return false;
+    }
+
+    outBraids->clear();
+
+    QJsonParseError parseError;
+    const QJsonDocument doc = QJsonDocument::fromJson(jsonData, &parseError);
+    if (doc.isNull()) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("JSON invalide: %1").arg(parseError.errorString());
+        }
+        return false;
+    }
+
+    QJsonArray braidsArray;
+    if (doc.isObject()) {
+        braidsArray = doc.object().value(QStringLiteral("braids")).toArray();
+    } else if (doc.isArray()) {
+        braidsArray = doc.array();
+    }
+
+    if (braidsArray.isEmpty()) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("Aucune tresse trouvee dans le JSON");
+        }
+        return false;
+    }
+
+    auto readInt = [](const QJsonObject &obj,
+                      const QStringList &keys,
+                      int defaultValue,
+                      bool *ok) -> int {
+        if (ok) {
+            *ok = false;
+        }
+
+        for (const QString &key : keys) {
+            const QJsonValue v = obj.value(key);
+            if (v.isUndefined() || v.isNull()) {
+                continue;
+            }
+
+            if (v.isDouble()) {
+                if (ok) {
+                    *ok = true;
+                }
+                return v.toInt(defaultValue);
+            }
+
+            if (v.isString()) {
+                bool localOk = false;
+                const int n = v.toString().trimmed().toInt(&localOk);
+                if (localOk) {
+                    if (ok) {
+                        *ok = true;
+                    }
+                    return n;
+                }
+            }
+        }
+
+        return defaultValue;
+    };
+
+    for (const QJsonValue &braidValue : braidsArray) {
+        if (!braidValue.isObject()) {
+            continue;
+        }
+
+        const QJsonObject braidObj = braidValue.toObject();
+        const QString code = braidObj.value(QStringLiteral("code")).toString().trimmed();
+        QString name = braidObj.value(QStringLiteral("name")).toString().trimmed();
+
+        if (code.isEmpty()) {
+            continue;
+        }
+
+        if (name.isEmpty()) {
+            name = code;
+        }
+
+        const QJsonArray movesArray = braidObj.value(QStringLiteral("moves")).toArray();
+        QVector<Move3082> moves;
+        moves.reserve(movesArray.size());
+
+        int rowIndex = 0;
+        for (const QJsonValue &moveValue : movesArray) {
+            ++rowIndex;
+            if (!moveValue.isObject()) {
+                continue;
+            }
+
+            const QJsonObject moveObj = moveValue.toObject();
+
+            bool okStep = false;
+            bool okCase = false;
+            bool okStrands = false;
+            bool okFrom = false;
+            bool okTo = false;
+
+            int step = readInt(moveObj,
+                               QStringList{QStringLiteral("sequence"), QStringLiteral("step"), QStringLiteral("numero_sequence"), QStringLiteral("numero"), QStringLiteral("n_sequence")},
+                               rowIndex,
+                               &okStep);
+            int boardCase = readInt(moveObj,
+                                    QStringList{QStringLiteral("case"), QStringLiteral("boardCase")},
+                                    0,
+                                    &okCase);
+            int strands = readInt(moveObj,
+                                  QStringList{QStringLiteral("strands"), QStringLiteral("nb_brins"), QStringLiteral("nb brins"), QStringLiteral("nbBrins")},
+                                  1,
+                                  &okStrands);
+            int fromPeg = readInt(moveObj,
+                                  QStringList{QStringLiteral("from"), QStringLiteral("depart"), QStringLiteral("départ")},
+                                  0,
+                                  &okFrom);
+            int toPeg = readInt(moveObj,
+                                QStringList{QStringLiteral("to"), QStringLiteral("arrivee"), QStringLiteral("arrivée")},
+                                0,
+                                &okTo);
+
+            QString sense = moveObj.value(QStringLiteral("sense")).toString().trimmed();
+            if (sense.isEmpty()) {
+                sense = moveObj.value(QStringLiteral("sens")).toString().trimmed();
+            }
+            if (sense.isEmpty()) {
+                sense = moveObj.value(QStringLiteral("rotation")).toString().trimmed();
+            }
+            const QChar rotation = sense.isEmpty() ? QLatin1Char('P') : sense.at(0).toUpper();
+
+            if (!okStep) {
+                step = rowIndex;
+            }
+
+            if (!okCase || !okStrands || !okFrom || !okTo || boardCase <= 0 || strands <= 0 || fromPeg <= 0 || toPeg <= 0) {
+                continue;
+            }
+
+            Move3082 move{};
+            move.step = step;
+            move.boardCase = boardCase;
+            move.strands = strands;
+            move.fromPeg = fromPeg;
+            move.toPeg = toPeg;
+            move.rotationCode = rotation;
+            move.note = moveObj.value(QStringLiteral("note")).toString();
+            move.imagePath = moveObj.value(QStringLiteral("image")).toString();
+            moves.push_back(move);
+        }
+
+        if (moves.isEmpty()) {
+            continue;
+        }
+
+        std::sort(moves.begin(), moves.end(), [](const Move3082 &a, const Move3082 &b) {
+            return a.step < b.step;
+        });
+
+        bool exists = false;
+        for (const BraidDefinition &existing : *outBraids) {
+            if (existing.code.compare(code, Qt::CaseInsensitive) == 0) {
+                exists = true;
+                break;
+            }
+        }
+        if (exists) {
+            continue;
+        }
+
+        outBraids->push_back(BraidDefinition{code, name, moves});
+    }
+
+    if (outBraids->isEmpty()) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("Aucune tresse valide dans le JSON");
+        }
+        return false;
+    }
+
+    return true;
+}
+
+bool MainWindow::saveBraidsCatalog(const QVector<BraidDefinition> &braids, QString *errorMessage) const
+{
+    if (m_braidsJsonPath.isEmpty()) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("Chemin JSON non defini");
+        }
+        return false;
+    }
+
+    QJsonArray braidsArray;
+    for (const BraidDefinition &braid : braids) {
+        if (braid.code.trimmed().isEmpty() || braid.moves.isEmpty()) {
+            continue;
+        }
+
+        QJsonObject braidObj;
+        braidObj.insert(QStringLiteral("code"), braid.code);
+        braidObj.insert(QStringLiteral("name"), braid.name);
+
+        QJsonArray movesArray;
+        for (const Move3082 &move : braid.moves) {
+            QJsonObject moveObj;
+            moveObj.insert(QStringLiteral("sequence"), move.step);
+            moveObj.insert(QStringLiteral("case"), move.boardCase);
+            moveObj.insert(QStringLiteral("strands"), move.strands);
+            moveObj.insert(QStringLiteral("from"), move.fromPeg);
+            moveObj.insert(QStringLiteral("to"), move.toPeg);
+            moveObj.insert(QStringLiteral("sense"), QString(move.rotationCode));
+            if (!move.note.trimmed().isEmpty()) {
+                moveObj.insert(QStringLiteral("note"), move.note);
+            }
+            if (!move.imagePath.trimmed().isEmpty()) {
+                moveObj.insert(QStringLiteral("image"), move.imagePath);
+            }
+            movesArray.push_back(moveObj);
+        }
+
+        braidObj.insert(QStringLiteral("moves"), movesArray);
+        braidsArray.push_back(braidObj);
+    }
+
+    QJsonObject root;
+    root.insert(QStringLiteral("version"), 1);
+    root.insert(QStringLiteral("braids"), braidsArray);
+
+    QSaveFile outFile(m_braidsJsonPath);
+    if (!outFile.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("Impossible d'ecrire %1").arg(m_braidsJsonPath);
+        }
+        return false;
+    }
+
+    outFile.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+    if (!outFile.commit()) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("Echec d'ecriture de %1").arg(m_braidsJsonPath);
+        }
+        return false;
+    }
+
+    return true;
+}
+
+void MainWindow::loadBraidsCatalog()
+{
+    m_braids.clear();
+
+    QString appDataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    if (appDataDir.trimmed().isEmpty()) {
+        appDataDir = QDir::currentPath();
+    }
+    QDir().mkpath(appDataDir);
+
+    const QString appDataPath = QDir(appDataDir).filePath(QStringLiteral("braids_catalog.json"));
+
+    const QStringList candidates = {
+        QDir::current().filePath(QStringLiteral("braids_catalog.json")),
+        QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("braids_catalog.json")),
+        appDataPath
+    };
+
+    for (const QString &candidate : candidates) {
+        QFile inFile(candidate);
+        if (!inFile.exists()) {
+            continue;
+        }
+        if (!inFile.open(QIODevice::ReadOnly)) {
+            continue;
+        }
+
+        QVector<BraidDefinition> loaded;
+        QString parseError;
+        if (parseBraidsCatalog(inFile.readAll(), &loaded, &parseError) && !loaded.isEmpty()) {
+            m_braids = loaded;
+            m_braidsJsonPath = candidate;
+            return;
+        }
+    }
+
+    m_braids = legacyBraidsCatalog();
+    m_braidsJsonPath = appDataPath;
+    saveBraidsCatalog(m_braids, nullptr);
+}
+
+void MainWindow::rebuildBraidSelector()
+{
+    if (!m_braidSelector) {
+        return;
+    }
+
+    if (m_braids.isEmpty()) {
+        m_braids = legacyBraidsCatalog();
+    }
+
+    QSignalBlocker blocker(m_braidSelector);
+    m_braidSelector->clear();
+
+    for (const BraidDefinition &braid : m_braids) {
+        m_braidSelector->addItem(braid.name, braid.code);
+    }
+
+    int idx = m_braidSelector->findData(m_selectedBraidCode);
+    if (idx < 0) {
+        idx = 0;
+    }
+    if (idx >= 0) {
+        m_selectedBraidCode = m_braidSelector->itemData(idx).toString();
+        m_braidSelector->setCurrentIndex(idx);
+    }
+}
+
+const MainWindow::BraidDefinition *MainWindow::currentBraidDefinition() const
+{
+    for (const BraidDefinition &braid : m_braids) {
+        if (braid.code == m_selectedBraidCode) {
+            return &braid;
+        }
+    }
+
+    if (!m_braids.isEmpty()) {
+        return &m_braids.front();
+    }
+
+    return nullptr;
+}
+
 const QVector<MainWindow::Move3082> &MainWindow::currentMoveSet() const
 {
-    if (m_selectedBraidCode == QStringLiteral("3082_2_78") && !kMovesPentalpha78.isEmpty()) {
-        return kMovesPentalpha78;
+    static const QVector<Move3082> kEmptyMoves;
+    const BraidDefinition *braid = currentBraidDefinition();
+    if (!braid) {
+        return kEmptyMoves;
     }
-
-    if (m_selectedBraidCode == QStringLiteral("3082_3_rose97") && !kMovesRoseDesVents97.isEmpty()) {
-        return kMovesRoseDesVents97;
-    }
-
-    return kMoves3082;
+    return braid->moves;
 }
+
 QString MainWindow::currentBraidTitle() const
 {
-    if (m_selectedBraidCode == QStringLiteral("3082")) {
-        return QStringLiteral("ABoK #3082 - Pentalpha a 61 brins");
+    const BraidDefinition *braid = currentBraidDefinition();
+    if (!braid) {
+        return QStringLiteral("Tresse");
     }
-
-    if (m_selectedBraidCode == QStringLiteral("3082_2_78")) {
-        return QStringLiteral("ABoK #3082-2 - Pentalpha a 78 brins");
-    }
-
-    if (m_selectedBraidCode == QStringLiteral("3082_3_rose97")) {
-        return QStringLiteral("ABoK #3082-3 - Rose des vents a 97 brins");
-    }
-
-    return QStringLiteral("ABoK #%1").arg(m_selectedBraidCode);
+    return braid->name;
 }
+
 void MainWindow::reloadCurrentBraid()
 {
     const auto &moves = currentMoveSet();
@@ -446,6 +807,7 @@ MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
 {
+    loadBraidsCatalog();
     setupInterface();
     configureMovesTable();
 
@@ -485,6 +847,11 @@ void MainWindow::setupInterface()
     m_restartButton = ui->restartButton;
     m_movesTable = ui->movesTable;
 
+    m_animationButton = new QPushButton(QStringLiteral("Animation"), this);
+    if (ui->horizontalLayoutButtons) {
+        ui->horizontalLayoutButtons->insertWidget(1, m_animationButton);
+    }
+
     auto *topWidget = new QWidget(this);
     auto *topLayout = new QHBoxLayout(topWidget);
     topLayout->setContentsMargins(8, 4, 8, 4);
@@ -492,10 +859,7 @@ void MainWindow::setupInterface()
 
     m_braidSelector = new QComboBox(topWidget);
     m_braidSelector->setMinimumWidth(290);
-    m_braidSelector->setToolTip(QStringLiteral("Selection de tresse ABoK"));
-    m_braidSelector->addItem(QStringLiteral("ABoK #3082 - Pentalpha a 61 brins"), QStringLiteral("3082"));
-    m_braidSelector->addItem(QStringLiteral("ABoK #3082-2 - Pentalpha a 78 brins"), QStringLiteral("3082_2_78"));
-    m_braidSelector->addItem(QStringLiteral("ABoK #3082-3 - Rose des vents a 97 brins"), QStringLiteral("3082_3_rose97"));
+    m_braidSelector->setToolTip(QStringLiteral("SÃ©lection de tresse ABoK"));
 
     m_colorModeSelector = new QComboBox(topWidget);
     m_colorModeSelector->setToolTip(QStringLiteral("Mode de coloriage"));
@@ -525,7 +889,7 @@ void MainWindow::setupInterface()
 
     m_loadDrawingButton = new QToolButton(topWidget);
     m_loadDrawingButton->setText(QStringLiteral("Dessin"));
-    m_loadDrawingButton->setToolTip(QStringLiteral("Charger un dessin de reference"));
+    m_loadDrawingButton->setToolTip(QStringLiteral("Charger un dessin de rÃ©fÃ©rence"));
     m_loadDrawingButton->setMinimumWidth(62);
 
     m_openDocButton = new QToolButton(topWidget);
@@ -535,19 +899,34 @@ void MainWindow::setupInterface()
 
     m_mainMenuButton = new QToolButton(topWidget);
     m_mainMenuButton->setText(QStringLiteral("Menu"));
-    m_mainMenuButton->setToolTip(QStringLiteral("Langues / Aide / A propos"));
+    m_mainMenuButton->setToolTip(QStringLiteral("Langues / Aide / Ã€ propos"));
     m_mainMenuButton->setPopupMode(QToolButton::InstantPopup);
     m_mainMenuButton->setMinimumWidth(60);
 
     auto *menu = new QMenu(m_mainMenuButton);
     auto *langMenu = menu->addMenu(QStringLiteral("Langues"));
-    QAction *autoLang = langMenu->addAction(QStringLiteral("Systeme (auto)"));
-    QAction *frLang = langMenu->addAction(QStringLiteral("Francais"));
+    QAction *autoLang = langMenu->addAction(QStringLiteral("SystÃ¨me (auto)"));
+    QAction *frLang = langMenu->addAction(QStringLiteral("FranÃ§ais"));
     QAction *enLang = langMenu->addAction(QStringLiteral("English"));
     connect(autoLang, &QAction::triggered, this, [this]() { applyUiLanguage(QStringLiteral("auto")); });
     connect(frLang, &QAction::triggered, this, [this]() { applyUiLanguage(QStringLiteral("fr_FR")); });
     connect(enLang, &QAction::triggered, this, [this]() { applyUiLanguage(QStringLiteral("en_US")); });
 
+    QAction *braidEditorAction = menu->addAction(QStringLiteral("Editeur des tresses..."));
+    connect(braidEditorAction, &QAction::triggered, this, &MainWindow::openBraidsEditor);
+
+    QAction *reloadCatalogAction = menu->addAction(QStringLiteral("Recharger les tresses (JSON)"));
+    connect(reloadCatalogAction, &QAction::triggered, this, [this]() {
+        loadBraidsCatalog();
+        rebuildBraidSelector();
+        reloadCurrentBraid();
+        updateView();
+        if (statusBar()) {
+            statusBar()->showMessage(QStringLiteral("Catalogue recharge depuis %1").arg(m_braidsJsonPath), 4000);
+        }
+    });
+
+    menu->addSeparator();
     auto *helpMenu = menu->addMenu(QStringLiteral("Aide"));
     QAction *quickHelp = helpMenu->addAction(QStringLiteral("Aide rapide"));
     QAction *openGuide = helpMenu->addAction(QStringLiteral("Ouvrir le guide Solid Sinnet"));
@@ -555,14 +934,14 @@ void MainWindow::setupInterface()
     connect(openGuide, &QAction::triggered, this, &MainWindow::openReferenceDocument);
 
     menu->addSeparator();
-    QAction *aboutAction = menu->addAction(QStringLiteral("A propos"));
+    QAction *aboutAction = menu->addAction(QStringLiteral("Ã€ propos"));
     connect(aboutAction, &QAction::triggered, this, &MainWindow::openAboutDialog);
 
     m_mainMenuButton->setMenu(menu);
 
     m_toggleDetailsButton = new QToolButton(topWidget);
-    m_toggleDetailsButton->setText(QStringLiteral("↓"));
-    m_toggleDetailsButton->setToolTip(QStringLiteral("Afficher/masquer les details"));
+    m_toggleDetailsButton->setText(QStringLiteral("â†“"));
+    m_toggleDetailsButton->setToolTip(QStringLiteral("Afficher/masquer les dÃ©tails"));
     m_toggleDetailsButton->setMinimumWidth(30);
 
     topLayout->addWidget(m_braidSelector, 0);
@@ -584,6 +963,9 @@ void MainWindow::setupInterface()
     QFont buttonFont = m_doneButton->font();
     buttonFont.setPointSize(buttonFont.pointSize() + 1);
     m_doneButton->setFont(buttonFont);
+    if (m_animationButton) {
+        m_animationButton->setFont(buttonFont);
+    }
     m_restartButton->setFont(buttonFont);
 
     m_titleLabel->hide();
@@ -595,11 +977,7 @@ void MainWindow::setupInterface()
 
     ui->verticalLayout->replaceWidget(ui->imageLabel, m_boardWidget);
     ui->imageLabel->hide();
-
-    if (m_braidSelector) {
-        const int idx = m_braidSelector->findData(m_selectedBraidCode);
-        m_braidSelector->setCurrentIndex(idx >= 0 ? idx : 0);
-    }
+    rebuildBraidSelector();
     reloadCurrentBraid();
 
     if (m_colorModeSelector) {
@@ -613,6 +991,9 @@ void MainWindow::setupInterface()
     }
 
     connect(m_doneButton, &QPushButton::clicked, this, &MainWindow::handleMoveDone);
+    if (m_animationButton) {
+        connect(m_animationButton, &QPushButton::clicked, this, &MainWindow::handleFullAnimation);
+    }
     connect(m_restartButton, &QPushButton::clicked, this, &MainWindow::restartSequence);
     connect(m_toggleDetailsButton, &QToolButton::clicked, this, [this]() {
         setDetailsExpanded(!m_detailsExpanded);
@@ -628,18 +1009,49 @@ void MainWindow::setupInterface()
 
     connect(m_boardWidget, &BraidBoardWidget::moveAnimationFinished, this,
             [this](bool success, const QString &errorMessage) {
+                if (!success) {
+                    m_fullAnimationRequested = false;
+                    m_doneButton->setEnabled(true);
+                    if (m_animationButton) {
+                        m_animationButton->setEnabled(true);
+                    }
+                    m_restartButton->setEnabled(true);
+                    if (m_braidSelector) {
+                        m_braidSelector->setEnabled(true);
+                    }
+                    statusBar()->showMessage(errorMessage, 5000);
+                    updateView();
+                    return;
+                }
+
+                ++m_currentMoveIndex;
+
+                const auto &moves = currentMoveSet();
+                if (m_fullAnimationRequested && m_currentMoveIndex < static_cast<int>(moves.size())) {
+                    const auto &nextMove = moves[m_currentMoveIndex];
+                    m_boardWidget->setPendingMove(nextMove.fromPeg, nextMove.toPeg);
+                    statusBar()->showMessage(
+                        QStringLiteral("Animation continue: mouvement %1/%2...")
+                            .arg(nextMove.step)
+                            .arg(moves.size()));
+                    m_boardWidget->animateMove(nextMove.fromPeg, nextMove.toPeg);
+                    return;
+                }
+
+                if (m_fullAnimationRequested && m_currentMoveIndex >= static_cast<int>(moves.size())) {
+                    statusBar()->showMessage(QStringLiteral("Animation complÃ¨te terminÃ©e."), 4000);
+                }
+
+                m_fullAnimationRequested = false;
                 m_doneButton->setEnabled(true);
+                if (m_animationButton) {
+                    m_animationButton->setEnabled(true);
+                }
                 m_restartButton->setEnabled(true);
                 if (m_braidSelector) {
                     m_braidSelector->setEnabled(true);
                 }
 
-                if (!success) {
-                    statusBar()->showMessage(errorMessage, 5000);
-                    return;
-                }
-
-                ++m_currentMoveIndex;
                 updateView();
             });
 
@@ -669,9 +1081,458 @@ void MainWindow::handleBraidSelectionChanged(int index)
     m_selectedBraidCode = code;
     reloadCurrentBraid();
     updateView();
-    statusBar()->showMessage(QStringLiteral("Tresse selectionnee: %1").arg(currentBraidTitle()), 3500);
+    statusBar()->showMessage(QStringLiteral("Tresse sÃ©lectionnÃ©e : %1").arg(currentBraidTitle()), 3500);
 }
 
+
+void MainWindow::openBraidsEditor()
+{
+    QVector<BraidDefinition> draftBraids = m_braids;
+    if (draftBraids.isEmpty()) {
+        draftBraids = legacyBraidsCatalog();
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("Editeur des tresses (JSON)"));
+    dialog.setModal(true);
+    dialog.resize(940, 640);
+
+    auto *layout = new QVBoxLayout(&dialog);
+
+    auto *selectorRow = new QHBoxLayout();
+    auto *selectorLabel = new QLabel(QStringLiteral("Tresse :"), &dialog);
+    auto *catalogCombo = new QComboBox(&dialog);
+    auto *newBraidButton = new QPushButton(QStringLiteral("Nouvelle"), &dialog);
+    auto *deleteBraidButton = new QPushButton(QStringLiteral("Supprimer"), &dialog);
+    selectorRow->addWidget(selectorLabel);
+    selectorRow->addWidget(catalogCombo, 1);
+    selectorRow->addWidget(newBraidButton);
+    selectorRow->addWidget(deleteBraidButton);
+    layout->addLayout(selectorRow);
+
+    auto *form = new QFormLayout();
+    auto *codeEdit = new QLineEdit(&dialog);
+    auto *nameEdit = new QLineEdit(&dialog);
+    form->addRow(QStringLiteral("Code"), codeEdit);
+    form->addRow(QStringLiteral("Nom explicite"), nameEdit);
+    layout->addLayout(form);
+
+    auto *table = new QTableWidget(&dialog);
+    table->setColumnCount(5);
+    table->setHorizontalHeaderLabels({
+        QStringLiteral("Sequence/Case"),
+        QStringLiteral("nb brins"),
+        QStringLiteral("depart"),
+        QStringLiteral("arrivee"),
+        QStringLiteral("sens")
+    });
+    table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    table->setSelectionMode(QAbstractItemView::SingleSelection);
+    table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    table->verticalHeader()->setDefaultSectionSize(24);
+    layout->addWidget(table, 1);
+
+    auto *rowsButtons = new QHBoxLayout();
+    auto *addRowButton = new QPushButton(QStringLiteral("Ajouter ligne"), &dialog);
+    auto *removeRowButton = new QPushButton(QStringLiteral("Supprimer ligne"), &dialog);
+    rowsButtons->addWidget(addRowButton);
+    rowsButtons->addWidget(removeRowButton);
+    rowsButtons->addStretch(1);
+    layout->addLayout(rowsButtons);
+
+    auto *hintLabel = new QLabel(
+        QStringLiteral("Colonnes attendues: sequence_case, nb brins, depart, arrivee + sens via combo Wingdings 3 (P/Q)."),
+        &dialog);
+    hintLabel->setWordWrap(true);
+    layout->addWidget(hintLabel);
+
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, &dialog);
+    layout->addWidget(buttons);
+
+    auto makeItem = [](const QString &text) {
+        auto *item = new QTableWidgetItem(text);
+        item->setTextAlignment(Qt::AlignCenter);
+        return item;
+    };
+
+    auto rowText = [table](int row, int col) {
+        const QTableWidgetItem *item = table->item(row, col);
+        return item ? item->text().trimmed() : QString();
+    };
+
+    auto ensureSenseCombo = [&](int row, QChar code) {
+        if (row < 0 || row >= table->rowCount()) {
+            return;
+        }
+
+        auto *combo = qobject_cast<QComboBox *>(table->cellWidget(row, 4));
+        if (!combo) {
+            combo = new QComboBox(table);
+            QFont f = combo->font();
+            f.setFamily(QStringLiteral("Wingdings 3"));
+            f.setPointSize(f.pointSize() + 2);
+            combo->setFont(f);
+            combo->addItem(QStringLiteral("P"), QStringLiteral("P"));
+            combo->addItem(QStringLiteral("Q"), QStringLiteral("Q"));
+            combo->setToolTip(QStringLiteral("P = Horaire, Q = Antihoraire"));
+            table->setCellWidget(row, 4, combo);
+        }
+
+        const QString codeText = QString(code.toUpper());
+        int idx = combo->findData(codeText);
+        if (idx < 0) {
+            idx = 0;
+        }
+        combo->setCurrentIndex(idx);
+    };
+
+    auto readSenseCode = [&](int row, QString *errorMessage) -> QChar {
+        if (auto *combo = qobject_cast<QComboBox *>(table->cellWidget(row, 4))) {
+            const QString code = combo->currentData().toString().trimmed().toUpper();
+            if (code == QStringLiteral("Q")) {
+                return QLatin1Char('Q');
+            }
+            return QLatin1Char('P');
+        }
+
+        const QString senseText = rowText(row, 4).trimmed().toUpper();
+        if (senseText.isEmpty()) {
+            return QLatin1Char('P');
+        }
+        if (senseText.startsWith(QLatin1Char('Q')) || senseText.startsWith(QStringLiteral("ANTI"))) {
+            return QLatin1Char('Q');
+        }
+        if (senseText.startsWith(QLatin1Char('P')) || senseText.startsWith(QStringLiteral("H"))) {
+            return QLatin1Char('P');
+        }
+
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("Ligne %1: sens invalide.").arg(row + 1);
+        }
+        return QChar();
+    };
+
+    int activeIndex = 0;
+
+    auto fillCatalogCombo = [&]() {
+        QSignalBlocker blocker(catalogCombo);
+        catalogCombo->clear();
+        for (const BraidDefinition &braid : draftBraids) {
+            catalogCombo->addItem(QStringLiteral("%1 (%2)").arg(braid.name, braid.code), braid.code);
+        }
+        deleteBraidButton->setEnabled(draftBraids.size() > 1);
+    };
+
+    auto loadBraidToUi = [&](int index) {
+        if (index < 0 || index >= draftBraids.size()) {
+            return;
+        }
+
+        activeIndex = index;
+        const BraidDefinition &braid = draftBraids[index];
+
+        codeEdit->setText(braid.code);
+        nameEdit->setText(braid.name);
+
+        if (braid.moves.isEmpty()) {
+            table->setRowCount(1);
+            for (int col = 0; col < table->columnCount() - 1; ++col) {
+                table->setItem(0, col, makeItem(QString()));
+            }
+            ensureSenseCombo(0, QLatin1Char('P'));
+            return;
+        }
+
+        table->setRowCount(braid.moves.size());
+        for (int row = 0; row < braid.moves.size(); ++row) {
+            const Move3082 &move = braid.moves[row];
+            const int sequenceCase = move.step > 0 ? move.step : move.boardCase;
+            table->setItem(row, 0, makeItem(QString::number(sequenceCase)));
+            table->setItem(row, 1, makeItem(QString::number(move.strands)));
+            table->setItem(row, 2, makeItem(QString::number(move.fromPeg)));
+            table->setItem(row, 3, makeItem(QString::number(move.toPeg)));
+            ensureSenseCombo(row, move.rotationCode);
+        }
+    };
+
+    auto storeUiToBraid = [&](int index, bool strict, QString *errorMessage) -> bool {
+        if (index < 0 || index >= draftBraids.size()) {
+            return true;
+        }
+
+        BraidDefinition &braid = draftBraids[index];
+        braid.code = codeEdit->text().trimmed();
+        braid.name = nameEdit->text().trimmed();
+
+        QVector<Move3082> moves;
+        moves.reserve(table->rowCount());
+
+        for (int row = 0; row < table->rowCount(); ++row) {
+            const QString sequenceCaseText = rowText(row, 0);
+            const QString strandsText = rowText(row, 1);
+            const QString fromText = rowText(row, 2);
+            const QString toText = rowText(row, 3);
+
+            const bool rowEmpty = sequenceCaseText.isEmpty()
+                                  && strandsText.isEmpty()
+                                  && fromText.isEmpty()
+                                  && toText.isEmpty();
+            if (rowEmpty) {
+                continue;
+            }
+
+            auto parsePositive = [&](const QString &value, const QString &label, int *out) -> bool {
+                bool ok = false;
+                const int n = value.toInt(&ok);
+                if (!ok || n <= 0) {
+                    if (errorMessage) {
+                        *errorMessage = QStringLiteral("Ligne %1: valeur invalide pour '%2'.").arg(row + 1).arg(label);
+                    }
+                    return false;
+                }
+                *out = n;
+                return true;
+            };
+
+            int sequenceCase = 0;
+            int strands = 0;
+            int fromPeg = 0;
+            int toPeg = 0;
+
+            if (!parsePositive(sequenceCaseText, QStringLiteral("Sequence/Case"), &sequenceCase)
+                || !parsePositive(strandsText, QStringLiteral("nb brins"), &strands)
+                || !parsePositive(fromText, QStringLiteral("depart"), &fromPeg)
+                || !parsePositive(toText, QStringLiteral("arrivee"), &toPeg)) {
+                return false;
+            }
+
+            QString senseError;
+            const QChar rotationCode = readSenseCode(row, &senseError);
+            if (rotationCode.isNull()) {
+                if (errorMessage) {
+                    *errorMessage = senseError;
+                }
+                return false;
+            }
+
+            Move3082 move{};
+            move.step = sequenceCase;
+            move.boardCase = sequenceCase;
+            move.strands = strands;
+            move.fromPeg = fromPeg;
+            move.toPeg = toPeg;
+            move.rotationCode = rotationCode;
+            moves.push_back(move);
+        }
+
+        if (strict && moves.isEmpty()) {
+            if (errorMessage) {
+                *errorMessage = QStringLiteral("La tresse doit contenir au moins une ligne de mouvement.");
+            }
+            return false;
+        }
+
+        std::sort(moves.begin(), moves.end(), [](const Move3082 &a, const Move3082 &b) {
+            return a.step < b.step;
+        });
+
+        braid.moves = moves;
+        return true;
+    };
+
+    connect(catalogCombo, qOverload<int>(&QComboBox::currentIndexChanged), &dialog, [&](int newIndex) {
+        if (newIndex < 0 || newIndex >= draftBraids.size() || newIndex == activeIndex) {
+            return;
+        }
+
+        QString error;
+        if (!storeUiToBraid(activeIndex, false, &error)) {
+            QMessageBox::warning(&dialog, QStringLiteral("Editeur des tresses"), error);
+            QSignalBlocker blocker(catalogCombo);
+            catalogCombo->setCurrentIndex(activeIndex);
+            return;
+        }
+
+        loadBraidToUi(newIndex);
+    });
+
+    connect(newBraidButton, &QPushButton::clicked, &dialog, [&]() {
+        QString error;
+        if (!storeUiToBraid(activeIndex, false, &error)) {
+            QMessageBox::warning(&dialog, QStringLiteral("Editeur des tresses"), error);
+            return;
+        }
+
+        int suffix = 1;
+        QString code;
+        while (true) {
+            code = QStringLiteral("new_braid_%1").arg(suffix++);
+            bool exists = false;
+            for (const BraidDefinition &braid : draftBraids) {
+                if (braid.code.compare(code, Qt::CaseInsensitive) == 0) {
+                    exists = true;
+                    break;
+                }
+            }
+            if (!exists) {
+                break;
+            }
+        }
+
+        BraidDefinition created;
+        created.code = code;
+        created.name = QStringLiteral("Nouvelle tresse");
+        draftBraids.push_back(created);
+
+        fillCatalogCombo();
+        const int newIndex = draftBraids.size() - 1;
+        catalogCombo->setCurrentIndex(newIndex);
+        loadBraidToUi(newIndex);
+        codeEdit->setFocus();
+        codeEdit->selectAll();
+    });
+
+    connect(deleteBraidButton, &QPushButton::clicked, &dialog, [&]() {
+        if (draftBraids.size() <= 1 || activeIndex < 0 || activeIndex >= draftBraids.size()) {
+            return;
+        }
+
+        const auto answer = QMessageBox::question(
+            &dialog,
+            QStringLiteral("Supprimer la tresse"),
+            QStringLiteral("Supprimer '%1' ?").arg(draftBraids[activeIndex].name),
+            QMessageBox::Yes | QMessageBox::No,
+            QMessageBox::No);
+
+        if (answer != QMessageBox::Yes) {
+            return;
+        }
+
+        draftBraids.removeAt(activeIndex);
+        fillCatalogCombo();
+
+        const int nextIndex = qMin(activeIndex, draftBraids.size() - 1);
+        catalogCombo->setCurrentIndex(nextIndex);
+        loadBraidToUi(nextIndex);
+    });
+
+    connect(addRowButton, &QPushButton::clicked, &dialog, [&]() {
+        const int row = table->rowCount();
+        table->insertRow(row);
+        for (int col = 0; col < table->columnCount() - 1; ++col) {
+            table->setItem(row, col, makeItem(QString()));
+        }
+        table->item(row, 0)->setText(QString::number(row + 1));
+        ensureSenseCombo(row, QLatin1Char('P'));
+        table->setCurrentCell(row, 0);
+        table->editItem(table->item(row, 0));
+    });
+
+    connect(removeRowButton, &QPushButton::clicked, &dialog, [&]() {
+        if (table->rowCount() <= 0) {
+            return;
+        }
+
+        int row = table->currentRow();
+        if (row < 0) {
+            row = table->rowCount() - 1;
+        }
+        table->removeRow(row);
+
+        if (table->rowCount() == 0) {
+            table->setRowCount(1);
+            for (int col = 0; col < table->columnCount() - 1; ++col) {
+                table->setItem(0, col, makeItem(QString()));
+            }
+            ensureSenseCombo(0, QLatin1Char('P'));
+        }
+    });
+
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, [&]() {
+        QString error;
+        if (!storeUiToBraid(activeIndex, true, &error)) {
+            QMessageBox::warning(&dialog, QStringLiteral("Editeur des tresses"), error);
+            return;
+        }
+
+        for (int i = 0; i < draftBraids.size(); ++i) {
+            BraidDefinition &braid = draftBraids[i];
+            braid.code = braid.code.trimmed();
+            braid.name = braid.name.trimmed();
+
+            if (braid.code.isEmpty()) {
+                QMessageBox::warning(&dialog,
+                                     QStringLiteral("Editeur des tresses"),
+                                     QStringLiteral("Chaque tresse doit avoir un code non vide."));
+                return;
+            }
+            if (braid.name.isEmpty()) {
+                braid.name = braid.code;
+            }
+            if (braid.moves.isEmpty()) {
+                QMessageBox::warning(&dialog,
+                                     QStringLiteral("Editeur des tresses"),
+                                     QStringLiteral("La tresse '%1' ne contient aucun mouvement.").arg(braid.name));
+                return;
+            }
+
+            for (int j = i + 1; j < draftBraids.size(); ++j) {
+                if (braid.code.compare(draftBraids[j].code, Qt::CaseInsensitive) == 0) {
+                    QMessageBox::warning(
+                        &dialog,
+                        QStringLiteral("Editeur des tresses"),
+                        QStringLiteral("Code duplique: '%1'.").arg(braid.code));
+                    return;
+                }
+            }
+        }
+
+        QString saveError;
+        if (!saveBraidsCatalog(draftBraids, &saveError)) {
+            QMessageBox::warning(
+                &dialog,
+                QStringLiteral("Editeur des tresses"),
+                saveError.isEmpty() ? QStringLiteral("Echec de sauvegarde JSON.") : saveError);
+            return;
+        }
+
+        m_braids = draftBraids;
+
+        const int selectedIndex = catalogCombo->currentIndex();
+        if (selectedIndex >= 0 && selectedIndex < m_braids.size()) {
+            m_selectedBraidCode = m_braids[selectedIndex].code;
+        }
+
+        rebuildBraidSelector();
+        reloadCurrentBraid();
+        updateView();
+
+        if (statusBar()) {
+            statusBar()->showMessage(
+                QStringLiteral("Catalogue enregistre dans %1").arg(m_braidsJsonPath),
+                5000);
+        }
+
+        dialog.accept();
+    });
+
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+
+    fillCatalogCombo();
+
+    int initialIndex = 0;
+    if (catalogCombo->count() > 0) {
+        const int found = catalogCombo->findData(m_selectedBraidCode);
+        if (found >= 0) {
+            initialIndex = found;
+        }
+    }
+
+    catalogCombo->setCurrentIndex(initialIndex);
+    loadBraidToUi(initialIndex);
+
+    dialog.exec();
+}
 void MainWindow::loadReferenceDrawing()
 {
     if (!m_boardWidget) {
@@ -689,7 +1550,7 @@ void MainWindow::loadReferenceDrawing()
 
     const QString selectedPath = QFileDialog::getOpenFileName(
         this,
-        QStringLiteral("Choisir le dessin de reference"),
+        QStringLiteral("Choisir le dessin de rÃ©fÃ©rence"),
         initialDir,
         QStringLiteral("Images (*.bmp *.png *.jpg *.jpeg)"));
 
@@ -700,14 +1561,14 @@ void MainWindow::loadReferenceDrawing()
     QString error;
     if (!m_boardWidget->loadReferenceImage(selectedPath, &error)) {
         QMessageBox::warning(this,
-                             QStringLiteral("Dessin de reference"),
+                             QStringLiteral("Dessin de rÃ©fÃ©rence"),
                              error.isEmpty() ? QStringLiteral("Chargement impossible.") : error);
         return;
     }
 
     s.setValue(key, selectedPath);
     s.sync();
-    statusBar()->showMessage(QStringLiteral("Dessin charge: %1").arg(QFileInfo(selectedPath).fileName()), 3500);
+    statusBar()->showMessage(QStringLiteral("Dessin chargÃ© : %1").arg(QFileInfo(selectedPath).fileName()), 3500);
 }
 
 void MainWindow::handleColorModeChanged(int index)
@@ -759,11 +1620,11 @@ void MainWindow::handlePalettePresetChanged(int index)
     m_boardWidget->resetQuickPaletteIndex();
 
     if (palette.isEmpty()) {
-        statusBar()->showMessage(QStringLiteral("Palette libre: selection manuelle sur les clous."), 3000);
+        statusBar()->showMessage(QStringLiteral("Palette libre : sÃ©lection manuelle sur les clous."), 3000);
         return;
     }
 
-    statusBar()->showMessage(QStringLiteral("Palette appliquee: %1").arg(m_palettePresetSelector->currentText()), 3000);
+    statusBar()->showMessage(QStringLiteral("Palette appliquÃ©e : %1").arg(m_palettePresetSelector->currentText()), 3000);
 }
 
 void MainWindow::openQuickHelp()
@@ -773,18 +1634,19 @@ void MainWindow::openQuickHelp()
         QStringLiteral("Aide rapide"),
         QStringLiteral(
             "1) Choisir la tresse dans la liste.\n"
-            "2) Regarder le vecteur rouge de previsualisation.\n"
-            "3) Cliquer 'Animer le mouvement' pour deplacer le fil interieur vers le clou exterieur.\n"
-            "4) Cliquer un clou occupe pour colorer un fil (ou un parcours complet selon le mode).\n"
-            "5) En mode 'Alternance', choisir une palette drapeau pour alterner automatiquement les couleurs.\n"
-            "6) Les couleurs sont sauvegardees automatiquement en .lbc (JSON)."));
+            "2) Regarder le vecteur rouge de prÃ©visualisation.\n"
+            "3) Cliquer 'Effectuer le mouvement' pour dÃ©placer le fil intÃ©rieur vers le clou extÃ©rieur.\n"
+            "4) Cliquer 'Animation' pour enchaÃ®ner automatiquement tout un passage sans arrÃªts.\n"
+            "5) Cliquer un clou occupÃ© pour colorer un fil (ou un parcours complet selon le mode).\n"
+            "6) En mode 'Alternance', choisir une palette drapeau pour alterner automatiquement les couleurs.\n"
+            "7) Les couleurs sont sauvegardÃ©es automatiquement en .lbc (JSON)."));
 }
 
 void MainWindow::openAboutDialog()
 {
     QMessageBox::about(
         this,
-        QStringLiteral("A propos de LogiBraiding"),
+        QStringLiteral("Ã€ propos de LogiBraiding"),
         QStringLiteral("LogiBraiding\n"
                        "Assistant visuel de tressage ABoK\n\n"
                        "Version d'essai: 15 jours\n"
@@ -803,12 +1665,12 @@ void MainWindow::applyUiLanguage(const QString &languageCode)
     const QMessageBox::StandardButton answer = QMessageBox::question(
         this,
         QStringLiteral("Langue"),
-        QStringLiteral("La langue sera appliquee au prochain demarrage.\nRedemarrer maintenant ?"),
+        QStringLiteral("La langue sera appliquÃ©e au prochain dÃ©marrage.\nRedÃ©marrer maintenant ?"),
         QMessageBox::Yes | QMessageBox::No,
         QMessageBox::Yes);
 
     if (answer != QMessageBox::Yes) {
-        statusBar()->showMessage(QStringLiteral("Langue enregistree: redemarrage requis."), 3500);
+        statusBar()->showMessage(QStringLiteral("Langue enregistrÃ©e : redÃ©marrage requis."), 3500);
         return;
     }
 
@@ -853,7 +1715,7 @@ void MainWindow::openReferenceDocument()
     }
 
     if (!QDesktopServices::openUrl(QUrl::fromLocalFile(docPath))) {
-        statusBar()->showMessage(QStringLiteral("Impossible d'ouvrir le document de reference."), 5000);
+        statusBar()->showMessage(QStringLiteral("Impossible d'ouvrir le document de rÃ©fÃ©rence."), 5000);
         return;
     }
 
@@ -868,7 +1730,7 @@ void MainWindow::setDetailsExpanded(bool expanded)
     m_movesTable->setVisible(expanded);
 
     if (m_toggleDetailsButton) {
-        m_toggleDetailsButton->setText(expanded ? QStringLiteral("↑") : QStringLiteral("↓"));
+        m_toggleDetailsButton->setText(expanded ? QStringLiteral("â†‘") : QStringLiteral("â†“"));
     }
 }
 
@@ -876,11 +1738,11 @@ void MainWindow::configureMovesTable()
 {
     m_movesTable->setColumnCount(6);
     m_movesTable->setHorizontalHeaderLabels({
-        QStringLiteral("Etape"),
+        QStringLiteral("Ã‰tape"),
         QStringLiteral("Case"),
         QStringLiteral("Brins"),
-        QStringLiteral("Depart"),
-        QStringLiteral("Arrivee"),
+        QStringLiteral("DÃ©part"),
+        QStringLiteral("ArrivÃ©e"),
         QStringLiteral("Rotation")
     });
 
@@ -929,8 +1791,8 @@ bool MainWindow::openRegistrationDialog(bool trialExpired)
 
     auto *intro = new QLabel(
         trialExpired
-            ? QStringLiteral("La periode d'essai de 15 jours est expiree. Entrez une cle de debridage pour continuer.")
-            : QStringLiteral("Entrez un email valide pour demander une inscription, ou collez directement votre cle de debridage."),
+            ? QStringLiteral("La pÃ©riode d'essai de 15 jours est expirÃ©e. Entrez une clÃ© de dÃ©bridage pour continuer.")
+            : QStringLiteral("Entrez un email valide pour demander une inscription, ou collez directement votre clÃ© de dÃ©bridage."),
         &dialog);
     intro->setWordWrap(true);
     layout->addWidget(intro);
@@ -944,12 +1806,12 @@ bool MainWindow::openRegistrationDialog(bool trialExpired)
 
     auto *keyEdit = new QLineEdit(&dialog);
     keyEdit->setPlaceholderText(QStringLiteral("XXXX-XXXX-XXXX-XXXX"));
-    form->addRow(QStringLiteral("Cle de debridage"), keyEdit);
+    form->addRow(QStringLiteral("ClÃ© de dÃ©bridage"), keyEdit);
 
     layout->addLayout(form);
 
     auto *help = new QLabel(
-        QStringLiteral("Validation avec email: ouvre votre client mail vers la boite d'inscription.\nValidation avec cle: debloque immediatement l'application et cree l'AuthorID."),
+        QStringLiteral("Validation avec email : ouvre votre client mail vers la boÃ®te d'inscription.\nValidation avec clÃ© : dÃ©bloque immÃ©diatement l'application et crÃ©e l'AuthorID."),
         &dialog);
     help->setWordWrap(true);
     layout->addWidget(help);
@@ -977,14 +1839,14 @@ bool MainWindow::openRegistrationDialog(bool trialExpired)
             if (!isValidEmail(emailForKey)) {
                 QMessageBox::warning(this,
                                      QStringLiteral("Inscription"),
-                                     QStringLiteral("Entrez d'abord un email valide associe a cette cle."));
+                                     QStringLiteral("Entrez d'abord un email valide associÃ© Ã  cette clÃ©."));
                 return;
             }
 
             if (!verifyUnlockKey(emailForKey, keyInput)) {
                 QMessageBox::warning(this,
                                      QStringLiteral("Inscription"),
-                                     QStringLiteral("Cle invalide pour cet email."));
+                                     QStringLiteral("ClÃ© invalide pour cet email."));
                 return;
             }
 
@@ -997,7 +1859,7 @@ bool MainWindow::openRegistrationDialog(bool trialExpired)
             QMessageBox::information(
                 this,
                 QStringLiteral("Inscription"),
-                QStringLiteral("Inscription validee. Application debridee.\nAuthorID: %1").arg(authorId));
+                QStringLiteral("Inscription validÃ©e. Application dÃ©bridÃ©e.\nAuthorID : %1").arg(authorId));
             dialog.accept();
             return;
         }
@@ -1005,7 +1867,7 @@ bool MainWindow::openRegistrationDialog(bool trialExpired)
         if (!isValidEmail(emailInput)) {
             QMessageBox::warning(this,
                                  QStringLiteral("Inscription"),
-                                 QStringLiteral("Entrez un email valide ou une cle."));
+                                 QStringLiteral("Entrez un email valide ou une clÃ©."));
             return;
         }
 
@@ -1017,7 +1879,7 @@ bool MainWindow::openRegistrationDialog(bool trialExpired)
             QMessageBox::information(
                 this,
                 QStringLiteral("Inscription"),
-                QStringLiteral("Email d'inscription non configure dans le code.\nRemplacez kRegistrationInboxEmail dans MainWindow.cpp puis recompilez."));
+                QStringLiteral("Email d'inscription non configurÃ© dans le code.\nRemplacez kRegistrationInboxEmail dans MainWindow.cpp puis recompilez."));
             return;
         }
 
@@ -1028,21 +1890,21 @@ bool MainWindow::openRegistrationDialog(bool trialExpired)
         QUrlQuery query;
         query.addQueryItem(QStringLiteral("subject"), QStringLiteral("Demande d'inscription LogiBraiding"));
         query.addQueryItem(QStringLiteral("body"),
-                           QStringLiteral("Bonjour,\n\nMerci de m'envoyer une cle de debridage pour cet email :\n%1\n\nCordialement,")
+                           QStringLiteral("Bonjour,\n\nMerci de m'envoyer une clÃ© de dÃ©bridage pour cet email :\n%1\n\nCordialement,")
                                .arg(emailInput));
         mailUrl.setQuery(query);
 
         if (!QDesktopServices::openUrl(mailUrl)) {
             QMessageBox::warning(this,
                                  QStringLiteral("Inscription"),
-                                 QStringLiteral("Impossible d'ouvrir le client email par defaut."));
+                                 QStringLiteral("Impossible d'ouvrir le client email par dÃ©faut."));
             return;
         }
 
         QMessageBox::information(
             this,
             QStringLiteral("Inscription"),
-            QStringLiteral("Demande envoyee via votre client email.\nQuand vous recevez la cle, revenez ici et collez-la dans le champ cle."));
+            QStringLiteral("Demande envoyÃ©e via votre client email.\nQuand vous recevez la clÃ©, revenez ici et collez-la dans le champ clÃ©."));
     });
 
     if (dialog.exec() != QDialog::Accepted) {
@@ -1064,15 +1926,15 @@ bool MainWindow::ensureTrialAccess()
     if (remaining > 0) {
         if (statusBar()) {
             statusBar()->showMessage(
-                QStringLiteral("Version d'essai: %1 jour(s) restant(s). Ctrl+I pour inscription.").arg(remaining),
+                QStringLiteral("Version d'essai : %1 jour(s) restant(s). Ctrl+I pour inscription.").arg(remaining),
                 6000);
         }
         return true;
     }
 
     QMessageBox::warning(this,
-                         QStringLiteral("Periode d'essai expiree"),
-                         QStringLiteral("La periode d'essai de 15 jours est terminee.\nUne inscription est necessaire pour continuer."));
+                         QStringLiteral("PÃ©riode d'essai expirÃ©e"),
+                         QStringLiteral("La pÃ©riode d'essai de 15 jours est terminÃ©e.\nUne inscription est nÃ©cessaire pour continuer."));
     return openRegistrationDialog(true);
 }
 
@@ -1117,7 +1979,7 @@ void MainWindow::updateCompactLine(const Move3082 *move, int totalMoves)
 
     if (!move) {
         m_compactLineLabel->setText(
-            QStringLiteral("Cycle termine: %1/%1 | %2").arg(totalMoves).arg(registrationState));
+            QStringLiteral("Cycle termin\u00E9 : %1/%1 | %2").arg(totalMoves).arg(registrationState));
         return;
     }
 
@@ -1125,7 +1987,7 @@ void MainWindow::updateCompactLine(const Move3082 *move, int totalMoves)
         QStringLiteral("<span style=\"font-family:'Wingdings 3';\">%1</span>").arg(move->rotationCode);
 
     m_compactLineLabel->setText(
-        QStringLiteral("Etape %1/%2 | Case %3 (%4 brins) | %5 -> %6 | Rotation %7 | %8")
+        QStringLiteral("Ã‰tape %1/%2 | Case %3 (%4 brins) | %5 -> %6 | Rotation %7 | %8")
                         .arg(move->step)
             .arg(totalMoves)
             .arg(move->boardCase)
@@ -1181,17 +2043,20 @@ void MainWindow::updateView()
 
     if (m_currentMoveIndex >= totalMoves) {
         updateCompactLine(nullptr, totalMoves);
-        m_progressLabel->setText(QStringLiteral("Progression: %1/%1 (cycle complet)").arg(totalMoves));
-        m_moveLabel->setText(QStringLiteral("La sequence complete %1 est terminee.").arg(currentBraidTitle()));
-        m_detailLabel->setText(QStringLiteral("Conformement a la logique append-only, toute correction demande un redemarrage complet."));
+        m_progressLabel->setText(QStringLiteral("Progression : %1/%1 (cycle complet)").arg(totalMoves));
+        m_moveLabel->setText(QStringLiteral("La s\u00E9quence compl\u00E8te %1 est termin\u00E9e.").arg(currentBraidTitle()));
+        m_detailLabel->setText(QStringLiteral("Conform\u00E9ment \u00E0 la logique append-only, toute correction demande un red\u00E9marrage complet."));
 
         m_boardWidget->setPendingMove(-1, -1);
         m_doneButton->setEnabled(false);
-        m_doneButton->setText(QStringLiteral("Cycle termine"));
+        if (m_animationButton) {
+            m_animationButton->setEnabled(false);
+        }
+        m_doneButton->setText(QStringLiteral("Cycle termin\u00E9"));
 
         populateActiveRow(moves.back(), QColor(226, 248, 229));
 
-        statusBar()->showMessage(QStringLiteral("Cycle termine. Utilisez 'Recommencer' pour repartir de l'etape 1."));
+        statusBar()->showMessage(QStringLiteral("Cycle termin\u00E9. Utilisez 'Recommencer' pour repartir de l'\u00E9tape 1."));
         return;
     }
 
@@ -1200,13 +2065,13 @@ void MainWindow::updateView()
     m_boardWidget->setPendingMove(move.fromPeg, move.toPeg);
 
     m_progressLabel->setText(
-        QStringLiteral("Progression: %1/%2 - prochain mouvement: etape %3")
+        QStringLiteral("Progression : %1/%2 - prochain mouvement : Ã©tape %3")
                         .arg(m_currentMoveIndex)
             .arg(totalMoves)
             .arg(move.step));
 
     m_moveLabel->setText(
-        QStringLiteral("Mouvement %1: prendre le fil du clou interieur de la case %2 et l'amener au clou exterieur de la case %3.")
+        QStringLiteral("Mouvement %1 : prendre le fil du clou intÃ©rieur de la case %2 et l'amener au clou extÃ©rieur de la case %3.")
             .arg(move.step)
             .arg(move.fromPeg)
             .arg(move.toPeg));
@@ -1214,34 +2079,62 @@ void MainWindow::updateView()
     const QString currentRotationGlyph =
         QStringLiteral("<span style=\"font-family:'Wingdings 3';\">%1</span>").arg(move.rotationCode);
     m_detailLabel->setText(
-        QStringLiteral("Case %1 | Brins %2 | Rotation %3 | Puis recentrer les fils restants vers l'interieur.")
+        QStringLiteral("Case %1 | Brins %2 | Rotation %3 | Puis recentrer les fils restants vers l'intÃ©rieur.")
             .arg(move.boardCase)
             .arg(move.strands)
             .arg(currentRotationGlyph));
 
     m_doneButton->setEnabled(true);
-    m_doneButton->setText(QStringLiteral("Animer le mouvement %1").arg(move.step));
+    if (m_animationButton) {
+        m_animationButton->setEnabled(true);
+    }
+    m_doneButton->setText(QStringLiteral("Effectuer le mouvement %1").arg(move.step));
 
     populateActiveRow(move, QColor(224, 238, 255));
 
-    statusBar()->showMessage(QStringLiteral("Mode didactique: animation du fil interieur vers le clou exterieur."));
+    statusBar()->showMessage(QStringLiteral("Mode didactique : effectuer le mouvement suivant ou lancer l'animation complÃ¨te."));
 }
 
-void MainWindow::handleMoveDone()
+void MainWindow::startCurrentMoveAnimation(bool fullPassage)
 {
-    if (m_currentMoveIndex >= static_cast<int>(currentMoveSet().size()) || m_boardWidget->isAnimating()) {
+    if (!m_boardWidget
+        || m_currentMoveIndex >= static_cast<int>(currentMoveSet().size())
+        || m_boardWidget->isAnimating()) {
         return;
     }
 
     const auto &move = currentMoveSet()[m_currentMoveIndex];
+    m_fullAnimationRequested = fullPassage;
+
     m_doneButton->setEnabled(false);
+    if (m_animationButton) {
+        m_animationButton->setEnabled(false);
+    }
     m_restartButton->setEnabled(false);
     if (m_braidSelector) {
         m_braidSelector->setEnabled(false);
     }
-    statusBar()->showMessage(QStringLiteral("Animation du mouvement %1 en cours...").arg(move.step));
+
+    if (fullPassage) {
+        statusBar()->showMessage(
+            QStringLiteral("Animation continue: mouvement %1/%2...")
+                .arg(move.step)
+                .arg(currentMoveSet().size()));
+    } else {
+        statusBar()->showMessage(QStringLiteral("ExÃ©cution du mouvement %1 en cours...").arg(move.step));
+    }
 
     m_boardWidget->animateMove(move.fromPeg, move.toPeg);
+}
+
+void MainWindow::handleMoveDone()
+{
+    startCurrentMoveAnimation(false);
+}
+
+void MainWindow::handleFullAnimation()
+{
+    startCurrentMoveAnimation(true);
 }
 
 void MainWindow::restartSequence()
@@ -1251,10 +2144,35 @@ void MainWindow::restartSequence()
     }
 
     m_currentMoveIndex = 0;
+    m_fullAnimationRequested = false;
     m_boardWidget->resetBoard();
     clearFocus();
     updateView();
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

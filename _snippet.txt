@@ -1,0 +1,14 @@
+﻿= Qt::LeftButton
+        && (e->modifiers() & Qt::ShiftModifier))
+    {
+        const QPointF scenePosSel = interpretPixelAsWorld(e->pos());
+        int sx = static_cast<int>(std::llround(scenePosSel.x()));
+        int sy = static_cast<int>(std::llround(scenePosSel.y()));
+
+        int snapStepSel = 1;
+        if (e->modifiers() & Qt::ControlModifier) snapStepSel = 10;
+
+        sx = (sx / snapStepSel) * snapStepSel;
+        sy = (sy / snapStepSel) * snapStepSel;
+
+        m_sketchSelecting = true;

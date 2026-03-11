@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.16)
+﻿cmake_minimum_required(VERSION 3.16)
 
 project(LogiKnotting VERSION 2.0.0 LANGUAGES CXX)
 
@@ -9,7 +9,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets)
+find_package(Qt6 REQUIRED COMPONENTS Widgets PrintSupport)
 
 add_executable(LogiKnotting
     src/Main.cpp
@@ -42,8 +42,9 @@ add_executable(LogiKnotting
 
 )
 
-target_link_libraries(LogiKnotting PRIVATE Qt6::Widgets)
+target_link_libraries(LogiKnotting PRIVATE Qt6::Widgets Qt6::PrintSupport)
 
 target_include_directories(LogiKnotting PRIVATE src)
+
 
 
