@@ -1,5 +1,5 @@
 ﻿param(
-    [ValidateSet("All", "LogiKnotting", "LogiBraiding")]
+    [ValidateSet("All", "KnotBraid", "LogiKnotting", "LogiBraiding")]
     [string]$App = "All",
 
     [string]$Configuration = "Release",
@@ -25,6 +25,11 @@ else {
 
 $apps = @(
     @{
+        Name = "KnotBraid"
+        ProjectDir = "KnotBraidLauncher"
+        ExeName = "KnotBraid.exe"
+    },
+    @{
         Name = "LogiKnotting"
         ProjectDir = "LogiKnotting"
         ExeName = "LogiKnotting.exe"
@@ -36,7 +41,11 @@ $apps = @(
     }
 )
 
-if ($App -ne "All") {
+if ($App -eq "All") {
+    # Keep legacy behavior: All launches the two existing apps.
+    $apps = $apps | Where-Object { $_.Name -ne "KnotBraid" }
+}
+else {
     $apps = $apps | Where-Object { $_.Name -eq $App }
 }
 
