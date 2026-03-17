@@ -21,6 +21,11 @@
 
 namespace {
 constexpr int kMinPegsPerCase = 3;
+constexpr int kDefaultAnimationDurationMs = 600;
+constexpr int kMinAnimationDurationMs = 600;
+constexpr int kMaxAnimationDurationMs = 60000;
+constexpr qreal kPegRadius = 3.0;
+constexpr qreal kAnimatedPegRadius = 5.5;
 const QColor kDefaultThreadColor(0, 181, 235);
 const char *kLegacyJsonFileName = "thread_colors_3082.json";
 
@@ -39,8 +44,8 @@ void drawArrowVector(QPainter &painter, const QPointF &start, const QPointF &end
     const QPointF dir = unit.p2() - unit.p1();
     const QPointF normal(-dir.y(), dir.x());
 
-    const qreal arrowLen = 10.0;
-    const qreal halfBase = 3.8;
+    const qreal arrowLen = 6.0;
+    const qreal halfBase = 2.4;
 
     const QPointF tip = end;
     const QPointF base = tip - dir * arrowLen;
@@ -72,7 +77,7 @@ BraidBoardWidget::BraidBoardWidget(QWidget *parent)
 
     setColorProfileKey(QStringLiteral("3082"));
 
-    m_animation->setDuration(650);
+    m_animation->setDuration(kDefaultAnimationDurationMs);
     m_animation->setStartValue(0.0);
     m_animation->setEndValue(1.0);
     m_animation->setEasingCurve(QEasingCurve::InOutCubic);
@@ -96,6 +101,35 @@ BraidBoardWidget::BraidBoardWidget(QWidget *parent)
         update();
         emit moveAnimationFinished(error.isEmpty(), error);
     });
+}
+
+void BraidBoardWidget::setAnimationDurationMs(int durationMs)
+{
+    if (!m_animation) {
+        return;
+    }
+
+    m_animation->setDuration(qBound(kMinAnimationDurationMs, durationMs, kMaxAnimationDurationMs));
+}
+
+int BraidBoardWidget::animationDurationMs() const
+{
+    return m_animation ? m_animation->duration() : kDefaultAnimationDurationMs;
+}
+
+bool BraidBoardWidget::stepMove(int fromCase, int toCase, QString *errorMessage)
+{
+    QString localError;
+    applyMove(fromCase, toCase, &localError);
+    if (!localError.isEmpty()) {
+        if (errorMessage) {
+            *errorMessage = localError;
+        }
+        return false;
+    }
+
+    update();
+    return true;
 }
 
 bool BraidBoardWidget::loadReferenceImage(const QString &filePath, QString *errorMessage)
@@ -666,21 +700,6 @@ void BraidBoardWidget::paintEvent(QPaintEvent *event)
         painter.drawLine(start, end);
     }
 
-    if (!m_animating && m_pendingFrom >= 0 && m_pendingFrom < caseCount
-        && m_pendingTo >= 0 && m_pendingTo < caseCount) {
-        const auto &fromState = m_cases[m_pendingFrom];
-        const auto &toState = m_cases[m_pendingTo];
-
-        if (!fromState.threads.isEmpty()) {
-            const int previewDestPeg = toState.threads.size();
-            if (previewDestPeg < toState.capacity) {
-                const QPointF previewStart = pegPosition(m_pendingFrom, 0);
-                const QPointF previewEnd = pegPosition(m_pendingTo, previewDestPeg);
-                drawArrowVector(painter, previewStart, previewEnd, QColor(210, 60, 50), 1.0);
-            }
-        }
-    }
-
     for (int i = 0; i < caseCount; ++i) {
         const auto &state = m_cases[i];
         if (state.capacity <= 0) {
@@ -725,9 +744,24 @@ void BraidBoardWidget::paintEvent(QPaintEvent *event)
                 border = QColor(230, 150, 20);
             }
 
-            painter.setPen(QPen(border, 1.5));
+            painter.setPen(QPen(border, 1.0));
             painter.setBrush(fill);
-            painter.drawEllipse(pos, 6.5, 6.5);
+            painter.drawEllipse(pos, kPegRadius, kPegRadius);
+        }
+    }
+
+    if (!m_animating && m_pendingFrom >= 0 && m_pendingFrom < caseCount
+        && m_pendingTo >= 0 && m_pendingTo < caseCount) {
+        const auto &fromState = m_cases[m_pendingFrom];
+        const auto &toState = m_cases[m_pendingTo];
+
+        if (!fromState.threads.isEmpty()) {
+            const int previewDestPeg = toState.threads.size();
+            if (previewDestPeg < toState.capacity) {
+                const QPointF previewStart = pegPosition(m_pendingFrom, 0);
+                const QPointF previewEnd = pegPosition(m_pendingTo, previewDestPeg);
+                drawArrowVector(painter, previewStart, previewEnd, QColor(210, 60, 50, 220), 1.15);
+            }
         }
     }
 
@@ -738,7 +772,7 @@ void BraidBoardWidget::paintEvent(QPaintEvent *event)
         const QColor animColor = (m_animThreadId > 0) ? colorForThread(m_animThreadId) : QColor(240, 70, 60);
         painter.setPen(QPen(QColor(50, 50, 50), 1));
         painter.setBrush(animColor);
-        painter.drawEllipse(m_animPos, 8.0, 8.0);
+        painter.drawEllipse(m_animPos, kAnimatedPegRadius, kAnimatedPegRadius);
     }
 }
 

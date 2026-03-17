@@ -61,6 +61,7 @@ public:
 
     void appendAbsPointToRope(RopeId ropeId, std::int64_t xAbs, std::int32_t y);
     void rebuildDerivedGeometry();
+    bool setCrossingOver(const CrossingKey& key, bool s2OverS1);
 
 private:
     void ensureInitialized();

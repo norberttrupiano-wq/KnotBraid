@@ -79,6 +79,7 @@ void WorkspaceScene::setModel(Model::WorkspaceModel* model)
     m_cacheSegmentsCount = 0;
     m_cacheCrossingsCount = 0;
     m_crossingsBySegB.clear();
+    clearCrossingEditMarks();
 
     update();
 }
@@ -98,6 +99,26 @@ void WorkspaceScene::setGridVisible(bool visible)
         return;
 
     m_gridVisible = visible;
+    update();
+}
+
+void WorkspaceScene::setStrokeWidthScale(double scale)
+{
+    const double clamped = std::clamp(scale, 0.5, 8.0);
+    if (std::fabs(m_strokeWidthScale - clamped) < 1e-6)
+        return;
+
+    m_strokeWidthScale = clamped;
+    update();
+}
+
+void WorkspaceScene::setPrintStrokeWidthMM(double widthMM)
+{
+    const double clamped = std::clamp(widthMM, 0.0, 10.0);
+    if (std::fabs(m_printStrokeWidthMM - clamped) < 1e-6)
+        return;
+
+    m_printStrokeWidthMM = clamped;
     update();
 }
 
@@ -363,12 +384,6 @@ void WorkspaceScene::drawPointsAndSegmentsFromTopology(QPainter* p, const QRectF
         return 0;
     };
 
-    auto resolvedS2OverS1 = [&](const Domain::TopoCrossing& c) -> bool
-    {
-        const auto it = m_topologyOverByKey.find(c.key);
-        return (it != m_topologyOverByKey.end()) ? it->second : c.s2OverS1;
-    };
-
     std::map<Domain::SegmentRef, std::vector<const Domain::TopoCrossing*>> underBySegment;
     std::vector<const Domain::TopoCrossing*> visibleCrossings;
     underBySegment.clear();
@@ -388,13 +403,32 @@ void WorkspaceScene::drawPointsAndSegmentsFromTopology(QPainter* p, const QRectF
 
         visibleCrossings.push_back(&c0);
 
-        const bool s2OverS1 = resolvedS2OverS1(c0);
+        const bool s2OverS1 = c0.s2OverS1;
         const Domain::SegmentRef underRef = s2OverS1 ? c0.s1 : c0.s2;
         underBySegment[underRef].push_back(&c0);
     }
 
-    const double holeHalfLenMM = 0.70;      // approx 7 px at default zoom
-    const double crossingOverlapMM = 0.05;  // hide AA seams at gap boundaries
+    const qreal strokeScale = static_cast<qreal>(std::clamp(m_strokeWidthScale, 0.5, 8.0));
+    const bool usePhysicalStrokeWidth = (m_printStrokeWidthMM > 0.05);
+    const qreal lightStrokeWidthMM = static_cast<qreal>(m_printStrokeWidthMM);
+    const qreal darkStrokeWidthMM = lightStrokeWidthMM * (7.0 / 13.0);
+    const auto scaledWidth = [strokeScale](qreal baseWidth)
+    {
+        return std::max<qreal>(0.5, baseWidth * strokeScale);
+    };
+    const auto configureStrokePen = [&](QPen& pen, qreal baseWidthPx, qreal widthMM)
+    {
+        pen.setCosmetic(!usePhysicalStrokeWidth);
+        pen.setWidthF(usePhysicalStrokeWidth ? std::max<qreal>(0.10, widthMM)
+                                             : scaledWidth(baseWidthPx));
+    };
+
+    const double holeHalfLenMM = usePhysicalStrokeWidth
+        ? std::max(0.70, static_cast<double>(lightStrokeWidthMM) * 0.38)
+        : 0.70 * static_cast<double>(strokeScale);
+    const double crossingOverlapMM = usePhysicalStrokeWidth
+        ? std::max(0.05, static_cast<double>(lightStrokeWidthMM) * 0.03)
+        : 0.05 * static_cast<double>(strokeScale);
     const double overHalfLenMM = holeHalfLenMM + crossingOverlapMM;
 
     const bool aaPrev = p->renderHints().testFlag(QPainter::Antialiasing);
@@ -410,14 +444,12 @@ void WorkspaceScene::drawPointsAndSegmentsFromTopology(QPainter* p, const QRectF
             const std::vector<Interval>* holes)
     {
         QPen segPenLightRound(base.lighter(150));
-        segPenLightRound.setCosmetic(true);
-        segPenLightRound.setWidth(13);
+        configureStrokePen(segPenLightRound, 13.0, lightStrokeWidthMM);
         segPenLightRound.setCapStyle(Qt::RoundCap);
         segPenLightRound.setJoinStyle(Qt::RoundJoin);
 
         QPen segPenDarkRound(base.darker(145));
-        segPenDarkRound.setCosmetic(true);
-        segPenDarkRound.setWidth(7);
+        configureStrokePen(segPenDarkRound, 7.0, darkStrokeWidthMM);
         segPenDarkRound.setCapStyle(Qt::RoundCap);
         segPenDarkRound.setJoinStyle(Qt::RoundJoin);
 
@@ -591,7 +623,7 @@ void WorkspaceScene::drawPointsAndSegmentsFromTopology(QPainter* p, const QRectF
         if (!pc)
             continue;
 
-        const bool s2OverS1 = resolvedS2OverS1(*pc);
+        const bool s2OverS1 = pc->s2OverS1;
         const Domain::SegmentRef overRef = s2OverS1 ? pc->s2 : pc->s1;
 
         const auto itSeg = segmentByRef.find(overRef);
@@ -617,14 +649,12 @@ void WorkspaceScene::drawPointsAndSegmentsFromTopology(QPainter* p, const QRectF
         const QColor base = ropeColor(overRef.ropeId);
 
         QPen segPenLightRound(base.lighter(150));
-        segPenLightRound.setCosmetic(true);
-        segPenLightRound.setWidth(13);
+        configureStrokePen(segPenLightRound, 13.0, lightStrokeWidthMM);
         segPenLightRound.setCapStyle(Qt::RoundCap);
         segPenLightRound.setJoinStyle(Qt::RoundJoin);
 
         QPen segPenDarkRound(base.darker(145));
-        segPenDarkRound.setCosmetic(true);
-        segPenDarkRound.setWidth(7);
+        configureStrokePen(segPenDarkRound, 7.0, darkStrokeWidthMM);
         segPenDarkRound.setCapStyle(Qt::RoundCap);
         segPenDarkRound.setJoinStyle(Qt::RoundJoin);
 
@@ -675,8 +705,7 @@ void WorkspaceScene::drawPointsAndSegmentsFromTopology(QPainter* p, const QRectF
         const QColor base = ropeColor(rope.ropeId);
 
         QPen pointPen(base.lighter(170));
-        pointPen.setCosmetic(true);
-        pointPen.setWidthF(1.5);
+        configureStrokePen(pointPen, 1.5, lightStrokeWidthMM * (1.5 / 13.0));
 
         const QBrush pointBrush(base);
         const double pointR = 0.35;
@@ -837,15 +866,28 @@ void WorkspaceScene::drawPointsAndSegments(QPainter* p, const QRectF& rect)
     // ---------------------------------------------------------
     // STYLE RUBAN 2ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“4ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“2 (15 / 9 px)
     // ---------------------------------------------------------
+    const qreal strokeScale = static_cast<qreal>(std::clamp(m_strokeWidthScale, 0.5, 8.0));
+    const bool usePhysicalStrokeWidth = (m_printStrokeWidthMM > 0.05);
+    const qreal lightStrokeWidthMM = static_cast<qreal>(m_printStrokeWidthMM);
+    const qreal darkStrokeWidthMM = lightStrokeWidthMM * (9.0 / 15.0);
+    const auto scaledWidth = [strokeScale](qreal baseWidth)
+    {
+        return std::max<qreal>(0.5, baseWidth * strokeScale);
+    };
+    const auto configureStrokePen = [&](QPen& pen, qreal baseWidthPx, qreal widthMM)
+    {
+        pen.setCosmetic(!usePhysicalStrokeWidth);
+        pen.setWidthF(usePhysicalStrokeWidth ? std::max<qreal>(0.10, widthMM)
+                                             : scaledWidth(baseWidthPx));
+    };
+
     QPen segPenLight(QColor(120, 170, 255, 255));
-    segPenLight.setCosmetic(true);
-    segPenLight.setWidth(15);
+    configureStrokePen(segPenLight, 15.0, lightStrokeWidthMM);
     segPenLight.setCapStyle(Qt::RoundCap);
     segPenLight.setJoinStyle(Qt::RoundJoin);
 
     QPen segPenDark(QColor(0, 70, 200, 255));
-    segPenDark.setCosmetic(true);
-    segPenDark.setWidth(9);
+    configureStrokePen(segPenDark, 9.0, darkStrokeWidthMM);
     segPenDark.setCapStyle(Qt::RoundCap);
     segPenDark.setJoinStyle(Qt::RoundJoin);
 
@@ -854,13 +896,14 @@ void WorkspaceScene::drawPointsAndSegments(QPainter* p, const QRectF& rect)
     QColor coreColor(0, 60, 255, 255);
 
     QPen pointPen(edgeColor);
-    pointPen.setCosmetic(true);
-    pointPen.setWidthF(2.0);
+    configureStrokePen(pointPen, 2.0, lightStrokeWidthMM * (2.0 / 15.0));
 
     const double r = 0.01; // quasi invisible (intÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©grÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â© au segment)
 
     // Taille du "trou" (mm en coordonnÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©es scÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¨ne)
-    const double holeHalfLenMM = 1.1;
+    const double holeHalfLenMM = usePhysicalStrokeWidth
+        ? std::max(1.1, static_cast<double>(lightStrokeWidthMM) * 0.55)
+        : 1.1 * static_cast<double>(strokeScale);
 
     struct Interval { double t0; double t1; };
 
@@ -1045,30 +1088,7 @@ void WorkspaceScene::refreshHoveredCrossing()
         return;
 
     const QPoint tipPos = QCursor::pos() + QPoint(0, -24);
-
-    if (rc.topologyBased)
-    {
-        const int ropeA = static_cast<int>(rc.s1.ropeId) + 1;
-        const int ropeB = static_cast<int>(rc.s2.ropeId) + 1;
-        const bool s2OverS1 = crossingOverState(rc);
-        const int ropeOver = s2OverS1 ? ropeB : ropeA;
-        const int ropeUnder = s2OverS1 ? ropeA : ropeB;
-
-        const QString txt = tr("Crossing %1 / %2\nRope %3 over Rope %4\nRight click to invert")
-                                .arg(m_hoveredCrossingIndex + 1)
-                                .arg(crossingCount())
-                                .arg(ropeOver)
-                                .arg(ropeUnder);
-        QToolTip::showText(tipPos, txt, nullptr, QRect(), 10000);
-        return;
-    }
-
-    const QString txt = tr("Crossing %1 / %2\n%3\nRight click to invert")
-                            .arg(m_hoveredCrossingIndex + 1)
-                            .arg(crossingCount())
-                            .arg(crossingOverState(rc) ? tr("OVER") : tr("UNDER"));
-
-    QToolTip::showText(tipPos, txt, nullptr, QRect(), 10000);
+    QToolTip::showText(tipPos, crossingTooltipText(rc, m_hoveredCrossingIndex, true), nullptr, QRect(), 10000);
 }
 
 void WorkspaceScene::refreshActiveCrossingTooltip()
@@ -1080,30 +1100,7 @@ void WorkspaceScene::refreshActiveCrossingTooltip()
     if (!rc.valid)
         return;
 
-    QString txt;
-    if (rc.topologyBased)
-    {
-        const int ropeA = static_cast<int>(rc.s1.ropeId) + 1;
-        const int ropeB = static_cast<int>(rc.s2.ropeId) + 1;
-        const bool s2OverS1 = crossingOverState(rc);
-        const int ropeOver = s2OverS1 ? ropeB : ropeA;
-        const int ropeUnder = s2OverS1 ? ropeA : ropeB;
-
-        txt = tr("Crossing %1 / %2\nRope %3 over Rope %4\n\u2190/\u2192 = prev/next\n\u2191 = Rope B over  \u2193 = Rope A over")
-                  .arg(m_activeCrossingIndex + 1)
-                  .arg(crossingCount())
-                  .arg(ropeOver)
-                  .arg(ropeUnder);
-    }
-    else
-    {
-        txt = tr("Crossing %1 / %2\n%3\n\u2190/\u2192 = prev/next\n\u2191 = OVER  \u2193 = UNDER")
-                  .arg(m_activeCrossingIndex + 1)
-                  .arg(crossingCount())
-                  .arg(crossingOverState(rc) ? tr("OVER") : tr("UNDER"));
-    }
-
-    QToolTip::showText(QCursor::pos(), txt);
+    QToolTip::showText(QCursor::pos(), crossingTooltipText(rc, m_activeCrossingIndex, true));
 }
 
 void WorkspaceScene::refreshActiveCrossingTooltipAt(const QPoint& globalPos)
@@ -1115,30 +1112,7 @@ void WorkspaceScene::refreshActiveCrossingTooltipAt(const QPoint& globalPos)
     if (!rc.valid)
         return;
 
-    QString txt;
-    if (rc.topologyBased)
-    {
-        const int ropeA = static_cast<int>(rc.s1.ropeId) + 1;
-        const int ropeB = static_cast<int>(rc.s2.ropeId) + 1;
-        const bool s2OverS1 = crossingOverState(rc);
-        const int ropeOver = s2OverS1 ? ropeB : ropeA;
-        const int ropeUnder = s2OverS1 ? ropeA : ropeB;
-
-        txt = tr("Crossing %1 / %2\nRope %3 over Rope %4\n\u2190/\u2192 = prev/next\n\u2191 = Rope B over  \u2193 = Rope A over")
-                  .arg(m_activeCrossingIndex + 1)
-                  .arg(crossingCount())
-                  .arg(ropeOver)
-                  .arg(ropeUnder);
-    }
-    else
-    {
-        txt = tr("Crossing %1 / %2\n%3\n\u2190/\u2192 = prev/next\n\u2191 = OVER  \u2193 = UNDER")
-                  .arg(m_activeCrossingIndex + 1)
-                  .arg(crossingCount())
-                  .arg(crossingOverState(rc) ? tr("OVER") : tr("UNDER"));
-    }
-
-    QToolTip::showText(globalPos, txt);
+    QToolTip::showText(globalPos, crossingTooltipText(rc, m_activeCrossingIndex, true));
 }
 
 bool WorkspaceScene::useTopologyCrossings() const
@@ -1226,11 +1200,94 @@ bool WorkspaceScene::crossingOverState(const RenderCrossing& rc) const
     if (!rc.topologyBased)
         return rc.legacyNewSegmentOver;
 
-    const auto it = m_topologyOverByKey.find(rc.key);
-    if (it != m_topologyOverByKey.end())
-        return it->second;
-
     return rc.s2OverS1;
+}
+
+QString WorkspaceScene::crossingTooltipText(const RenderCrossing& rc,
+                                            int /*crossingIndex*/,
+                                            bool /*includeEditHints*/) const
+{
+    if (!m_model || !rc.valid)
+        return QString();
+
+    auto tooltipFromLine = [this](const QLineF& line) -> QString
+    {
+        const double dx = line.x2() - line.x1();
+        const double dy = line.y2() - line.y1();
+        const bool risesToLeft = (dx * dy) > 0.0;
+
+        return risesToLeft
+                   ? tr("Croisement Gauche\nClic-droit pour inverser")
+                   : tr("Croisement Droite\nClic-droit pour inverser");
+    };
+
+    if (rc.topologyBased)
+    {
+        const Domain::SegmentRef overRef = crossingOverState(rc) ? rc.s2 : rc.s1;
+        const auto& topo = m_model->topologySnapshot();
+        const auto it = std::find_if(topo.segments.begin(),
+                                     topo.segments.end(),
+                                     [&overRef](const Domain::TopoSegment& segment)
+                                     {
+                                         return segment.ref == overRef;
+                                     });
+
+        if (it != topo.segments.end())
+        {
+            const QLineF overLine(static_cast<double>(it->a.xAbs),
+                                  static_cast<double>(it->a.y),
+                                  static_cast<double>(it->b.xAbs),
+                                  static_cast<double>(it->b.y));
+            return tooltipFromLine(overLine);
+        }
+    }
+    else
+    {
+        const int overSegmentIndex = crossingOverState(rc) ? rc.legacySegmentB : rc.legacySegmentA;
+        const auto& segments = m_model->segments();
+        if (overSegmentIndex >= 0 && overSegmentIndex < static_cast<int>(segments.size()))
+            return tooltipFromLine(segments[static_cast<std::size_t>(overSegmentIndex)]);
+    }
+
+    return tr("Croisement Droite\nClic-droit pour inverser");
+}
+
+bool WorkspaceScene::crossingIsModified(const RenderCrossing& rc) const
+{
+    if (!rc.valid)
+        return false;
+
+    if (rc.topologyBased)
+    {
+        const auto it = m_topologyModifiedCrossings.find(rc.key);
+        return it != m_topologyModifiedCrossings.end() && it->second;
+    }
+
+    if (rc.index < 0 || rc.index >= static_cast<int>(m_legacyModifiedCrossings.size()))
+        return false;
+
+    return m_legacyModifiedCrossings[static_cast<std::size_t>(rc.index)];
+}
+
+void WorkspaceScene::markCrossingModified(const RenderCrossing& rc)
+{
+    if (!rc.valid)
+        return;
+
+    if (rc.topologyBased)
+    {
+        m_topologyModifiedCrossings[rc.key] = true;
+        return;
+    }
+
+    if (rc.index < 0)
+        return;
+
+    const std::size_t crossingIndex = static_cast<std::size_t>(rc.index);
+    if (m_legacyModifiedCrossings.size() <= crossingIndex)
+        m_legacyModifiedCrossings.resize(crossingIndex + 1, false);
+
+    m_legacyModifiedCrossings[crossingIndex] = true;
 }
 
 int WorkspaceScene::crossingCount() const
@@ -1265,9 +1322,16 @@ bool WorkspaceScene::setCrossingOver(int idx, bool over)
     if (!rc.valid)
         return false;
 
+    const bool currentState = crossingOverState(rc);
+    if (currentState == over)
+        return true;
+
     if (rc.topologyBased)
     {
-        m_topologyOverByKey[rc.key] = over;
+        if (!m_model->setTopologyCrossingOver(rc.key, over))
+            return false;
+
+        markCrossingModified(rc);
         update();
         return true;
     }
@@ -1276,8 +1340,8 @@ bool WorkspaceScene::setCrossingOver(int idx, bool over)
     if (idx < 0 || idx >= static_cast<int>(crossings.size()))
         return false;
 
-    if (crossings[static_cast<std::size_t>(idx)].newSegmentOver != over)
-        m_model->invertCrossing(static_cast<std::size_t>(idx));
+    m_model->invertCrossing(static_cast<std::size_t>(idx));
+    markCrossingModified(rc);
 
     update();
     return true;
@@ -1305,7 +1369,15 @@ void WorkspaceScene::setCrossingOverviewEnabled(bool enabled)
         return;
 
     m_crossingOverviewEnabled = enabled;
+    clearCrossingEditMarks();
+
     update();
+}
+
+void WorkspaceScene::clearCrossingEditMarks()
+{
+    m_legacyModifiedCrossings.clear();
+    m_topologyModifiedCrossings.clear();
 }
 int WorkspaceScene::findCrossingNear(const QPointF& worldPosMM, double radiusMM) const
 {
@@ -1422,15 +1494,17 @@ void WorkspaceScene::drawForeground(QPainter* p, const QRectF& rect)
     const bool aaPrev = p->renderHints().testFlag(QPainter::Antialiasing);
     p->setRenderHint(QPainter::Antialiasing, true);
 
+    const QColor modifiedFill(200, 20, 32, 92);
     QPen ringPen(QColor(255, 210, 0));
     ringPen.setCosmetic(true);
     ringPen.setWidthF(1.0);
     p->setPen(ringPen);
-    p->setBrush(Qt::NoBrush);
 
     const int Lmm = m_model->ribbonLengthMM();
-    auto drawWrappedRing = [&](const QPointF& basePos, double radius)
+    auto drawWrappedRing = [&](const QPointF& basePos, double radius, bool modified)
     {
+        p->setBrush(modified ? QBrush(modifiedFill) : Qt::NoBrush);
+
         if (Lmm <= 0)
         {
             p->drawEllipse(basePos, radius, radius);
@@ -1468,7 +1542,7 @@ void WorkspaceScene::drawForeground(QPainter* p, const QRectF& rect)
                     continue;
             }
 
-            drawWrappedRing(c.absPosMM, allR);
+            drawWrappedRing(c.absPosMM, allR, crossingIsModified(c));
         }
     }
 
@@ -1476,7 +1550,7 @@ void WorkspaceScene::drawForeground(QPainter* p, const QRectF& rect)
     if (rc.valid)
     {
         const double activeR = m_crossingOverviewEnabled ? 2.8 : 3.4;
-        drawWrappedRing(rc.absPosMM, activeR);
+        drawWrappedRing(rc.absPosMM, activeR, crossingIsModified(rc));
     }
 
     p->setRenderHint(QPainter::Antialiasing, aaPrev);

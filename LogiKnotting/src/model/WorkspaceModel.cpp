@@ -67,6 +67,17 @@ static int floorDivI64(std::int64_t a, std::int64_t b)
     return static_cast<int>(- ((-a + b - 1) / b));
 }
 
+static Domain::CrossingKey legacyCrossingKey(const Model::Crossing& crossing)
+{
+    Domain::CrossingKey key;
+    key.sMin.ropeId = 0;
+    key.sMax.ropeId = 0;
+    key.sMin.segIndex = std::min(crossing.segmentAIndex, crossing.segmentBIndex);
+    key.sMax.segIndex = std::max(crossing.segmentAIndex, crossing.segmentBIndex);
+    key.turn = crossing.tour;
+    return key;
+}
+
 // ------------------------------------------------------------
 
 static QString authorIdFromEmail(const QString& email)
@@ -476,6 +487,22 @@ void WorkspaceModel::invertCrossing(std::size_t index)
     m_crossings[index].newSegmentOver = !m_crossings[index].newSegmentOver;
 }
 
+bool WorkspaceModel::setTopologyCrossingOver(const Domain::CrossingKey& key, bool s2OverS1)
+{
+    if (!m_topologyStore.setCrossingOver(key, s2OverS1))
+        return false;
+
+    startDesignTimeIfNeeded();
+
+    for (Crossing& crossing : m_crossings)
+    {
+        if (!(legacyCrossingKey(crossing) < key) && !(key < legacyCrossingKey(crossing)))
+            crossing.newSegmentOver = s2OverS1;
+    }
+
+    return true;
+}
+
 // ------------------------------------------------------------
 // Rebuild XAbs
 // ------------------------------------------------------------
@@ -502,7 +529,7 @@ void WorkspaceModel::rebuildPointsXAbs()
         }
 
         const std::int64_t lastXAbs = m_pointsXAbs.back();
-        const std::int64_t k0 = lastXAbs / L;
+        const std::int64_t k0 = floorDivI64(lastXAbs, L);
 
         std::int64_t best = x + k0 * L;
         std::int64_t bestDist = std::llabs(best - lastXAbs);
@@ -522,6 +549,40 @@ void WorkspaceModel::rebuildPointsXAbs()
     }
 }
 
+std::int64_t WorkspaceModel::resolveAbsoluteX(const Action& action) const
+{
+    if (action.hasAbsoluteX)
+        return action.absoluteXMM;
+
+    const std::int64_t x = static_cast<std::int64_t>(std::llround(action.positionMM.x()));
+    if (m_pointsXAbs.empty())
+        return x;
+
+    const std::int64_t L = static_cast<std::int64_t>(m_ribbonLengthMM);
+    if (L <= 0)
+        return x;
+
+    const std::int64_t lastXAbs = m_pointsXAbs.back();
+    const std::int64_t k0 = floorDivI64(lastXAbs, L);
+
+    std::int64_t bestXAbs = x + k0 * L;
+    std::int64_t bestDist = std::llabs(bestXAbs - lastXAbs);
+
+    for (int dk = -1; dk <= 1; ++dk)
+    {
+        const std::int64_t candidate = x + (k0 + dk) * L;
+        const std::int64_t dist = std::llabs(candidate - lastXAbs);
+
+        if (dist < bestDist)
+        {
+            bestDist = dist;
+            bestXAbs = candidate;
+        }
+    }
+
+    return bestXAbs;
+}
+
 void WorkspaceModel::syncTopologyStoreFromLegacy()
 {
     // MIGRATION-PARALLEL: fallback si un fichier V2 ne contient pas le bloc ropes
@@ -539,6 +600,14 @@ void WorkspaceModel::syncTopologyStoreFromLegacy()
 
     m_topologyStore.rebuildDerivedGeometry();
     m_topologyStore.setActiveRopeId(0);
+
+    for (const Crossing& crossing : m_crossings)
+    {
+        if (crossing.segmentAIndex < 0 || crossing.segmentBIndex < 0)
+            continue;
+
+        m_topologyStore.setCrossingOver(legacyCrossingKey(crossing), crossing.newSegmentOver);
+    }
 }
 
 // ------------------------------------------------------------
@@ -773,40 +842,6 @@ void WorkspaceModel::addPoint(const QPointF& posMM)
 
     apply(action);
 
-    std::int64_t xAbs;
-
-    if (m_pointsXAbs.empty())
-    {
-        xAbs = static_cast<std::int64_t>(posMM.x());
-    }
-    else
-    {
-        std::int64_t lastXAbs = m_pointsXAbs.back();
-        std::int64_t L = m_ribbonLengthMM;
-        std::int64_t x = static_cast<std::int64_t>(posMM.x());
-
-        std::int64_t k0 = lastXAbs / L;
-
-        std::int64_t bestXAbs = x + k0 * L;
-        std::int64_t bestDist = std::llabs(bestXAbs - lastXAbs);
-
-        for (int dk = -1; dk <= 1; ++dk)
-        {
-            std::int64_t candidate = x + (k0 + dk) * L;
-            std::int64_t dist = std::llabs(candidate - lastXAbs);
-
-            if (dist < bestDist)
-            {
-                bestDist = dist;
-                bestXAbs = candidate;
-            }
-        }
-
-        xAbs = bestXAbs;
-    }
-
-    m_pointsXAbs.push_back(xAbs);
-
     m_undoStack.push(action);
     while (!m_redoStack.empty())
         m_redoStack.pop();
@@ -841,6 +876,26 @@ void WorkspaceModel::addPoint(const QPointF& posMM)
 #endif
 }
 
+void WorkspaceModel::addPointAbs(const QPointF& posMM, std::int64_t xAbsMM)
+{
+    startDesignTimeIfNeeded();
+
+    Action action;
+    action.type = Action::Type::AddPoint;
+    action.positionMM = posMM;
+    action.ropeId = activeRopeId();
+    action.hasAbsoluteX = true;
+    action.absoluteXMM = xAbsMM;
+
+    apply(action);
+
+    m_undoStack.push(action);
+    while (!m_redoStack.empty())
+        m_redoStack.pop();
+
+    rebuildSegments();
+}
+
 // ------------------------------------------------------------
 // Apply / Revert
 // ------------------------------------------------------------
@@ -848,13 +903,15 @@ void WorkspaceModel::apply(const Action& action)
 {
     if (action.type == Action::Type::AddPoint)
     {
+        const std::int64_t xAbs = resolveAbsoluteX(action);
+        const std::int32_t y = static_cast<std::int32_t>(std::llround(action.positionMM.y()));
+
         m_points.push_back(action.positionMM);
+        m_pointsXAbs.push_back(xAbs);
 
         // MIGRATION-PARALLEL: double-ÃƒÆ’Ã‚Â©criture legacy + TopologyStore
-        m_topologyStore.appendLogicalPointForRope(
-            static_cast<Domain::RopeId>(action.ropeId),
-            action.positionMM
-        );
+        m_topologyStore.appendAbsPointToRope(static_cast<Domain::RopeId>(action.ropeId), xAbs, y);
+        m_topologyStore.rebuildDerivedGeometry();
     }
 }
 
@@ -899,7 +956,6 @@ void WorkspaceModel::redo()
     apply(action);
     m_undoStack.push(action);
 
-    rebuildPointsXAbs();
     rebuildSegments();
 }
 
@@ -1038,6 +1094,20 @@ bool WorkspaceModel::saveToFile(const QString& filePath) const
         ropesArray.append(ro);
     }
     root["ropes"] = ropesArray;
+
+    QJsonArray topologyCrossingsArray;
+    for (const auto& crossing : topo.crossings)
+    {
+        QJsonObject co;
+        co["min_rope_id"] = static_cast<int>(crossing.key.sMin.ropeId);
+        co["min_seg_index"] = crossing.key.sMin.segIndex;
+        co["max_rope_id"] = static_cast<int>(crossing.key.sMax.ropeId);
+        co["max_seg_index"] = crossing.key.sMax.segIndex;
+        co["turn"] = crossing.key.turn;
+        co["s2_over_s1"] = crossing.s2OverS1;
+        topologyCrossingsArray.append(co);
+    }
+    root["topology_crossings"] = topologyCrossingsArray;
 
     const QString integrityNonce = makeIntegrityNonce();
     QJsonObject integrity;
@@ -1204,6 +1274,20 @@ bool WorkspaceModel::loadFromFile(const QString& filePath)
         m_crossings.push_back(c);
     }
 
+    std::map<Domain::CrossingKey, bool> topologyCrossingStates;
+    const QJsonArray topologyCrossingsArray = root["topology_crossings"].toArray();
+    for (qsizetype i = 0; i < topologyCrossingsArray.size(); ++i)
+    {
+        const QJsonObject co = topologyCrossingsArray.at(i).toObject();
+        Domain::CrossingKey key;
+        key.sMin.ropeId = static_cast<Domain::RopeId>(co["min_rope_id"].toInt(0));
+        key.sMin.segIndex = co["min_seg_index"].toInt(-1);
+        key.sMax.ropeId = static_cast<Domain::RopeId>(co["max_rope_id"].toInt(0));
+        key.sMax.segIndex = co["max_seg_index"].toInt(-1);
+        key.turn = co["turn"].toInt(0);
+        topologyCrossingStates[key] = co["s2_over_s1"].toBool(true);
+    }
+
     rebuildPointsXAbs();
     rebuildSegments();
 
@@ -1240,6 +1324,9 @@ bool WorkspaceModel::loadFromFile(const QString& filePath)
     {
         syncTopologyStoreFromLegacy();
     }
+
+    for (auto it = topologyCrossingStates.begin(); it != topologyCrossingStates.end(); ++it)
+        m_topologyStore.setCrossingOver(it->first, it->second);
 
     return true;
 }

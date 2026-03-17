@@ -10,8 +10,14 @@
 #include <QProcess>
 #include <QPushButton>
 #include <QStringList>
+#include <QVersionNumber>
 #include <QVBoxLayout>
 #include <QWidget>
+
+#ifdef Q_OS_WIN
+#include <windows.h>
+#include <winver.h>
+#endif
 
 namespace {
 
@@ -23,12 +29,82 @@ QString tail(const QString &text, int maxChars)
     return text.right(maxChars);
 }
 
+QString defaultQtPrefixPath()
+{
+    const QDir qtRoot(QStringLiteral("C:/Qt"));
+    if (qtRoot.exists()) {
+        QVersionNumber bestVersion;
+        QString bestPath;
+
+        const QFileInfoList entries = qtRoot.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot,
+                                                           QDir::Name);
+
+        for (const QFileInfo &entry : entries) {
+            int suffixIndex = -1;
+            const QVersionNumber version = QVersionNumber::fromString(entry.fileName(), &suffixIndex);
+            if (suffixIndex != entry.fileName().size() || version.majorVersion() < 6) {
+                continue;
+            }
+
+            const QString candidate = QDir(entry.absoluteFilePath())
+                                          .filePath(QStringLiteral("msvc2022_64"));
+            if (!QDir(candidate).exists()) {
+                continue;
+            }
+
+            if (bestPath.isEmpty() || QVersionNumber::compare(version, bestVersion) > 0) {
+                bestVersion = version;
+                bestPath = candidate;
+            }
+        }
+
+        if (!bestPath.isEmpty()) {
+            return QDir::toNativeSeparators(bestPath);
+        }
+    }
+
+    return QStringLiteral("C:/Qt/6.10.2/msvc2022_64");
+}
+
+#ifdef Q_OS_WIN
+QString windowsFileVersion(const QString &path)
+{
+    const std::wstring nativePath = QDir::toNativeSeparators(path).toStdWString();
+    DWORD unused = 0;
+    const DWORD versionInfoSize = GetFileVersionInfoSizeW(nativePath.c_str(), &unused);
+    if (versionInfoSize == 0) {
+        return QString();
+    }
+
+    QByteArray buffer(static_cast<int>(versionInfoSize), Qt::Uninitialized);
+    if (!GetFileVersionInfoW(nativePath.c_str(), 0, versionInfoSize, buffer.data())) {
+        return QString();
+    }
+
+    VS_FIXEDFILEINFO *fileInfo = nullptr;
+    UINT fileInfoSize = 0;
+    if (!VerQueryValueW(buffer.data(),
+                        L"\\",
+                        reinterpret_cast<LPVOID *>(&fileInfo),
+                        &fileInfoSize) ||
+        fileInfo == nullptr) {
+        return QString();
+    }
+
+    return QStringLiteral("%1.%2.%3.%4")
+        .arg(HIWORD(fileInfo->dwFileVersionMS))
+        .arg(LOWORD(fileInfo->dwFileVersionMS))
+        .arg(HIWORD(fileInfo->dwFileVersionLS))
+        .arg(LOWORD(fileInfo->dwFileVersionLS));
+}
+#endif
+
 } // namespace
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
-    setWindowTitle(QStringLiteral("KnotBraid"));
+    setWindowTitle(QStringLiteral("KnotBraidLauncher"));
     resize(680, 300);
 
     auto *central = new QWidget(this);
@@ -36,14 +112,14 @@ MainWindow::MainWindow(QWidget *parent)
     rootLayout->setContentsMargins(16, 16, 16, 16);
     rootLayout->setSpacing(12);
 
-    auto *title = new QLabel(QStringLiteral("KnotBraid - Lancement rapide"), central);
+    auto *title = new QLabel(QStringLiteral("KnotBraidLauncher - Outils developpeur"), central);
     QFont titleFont = title->font();
     titleFont.setPointSize(titleFont.pointSize() + 3);
     titleFont.setBold(true);
     title->setFont(titleFont);
 
     auto *subtitle = new QLabel(
-        QStringLiteral("Phase 1: une entree unique pour lancer LogiKnotting et LogiBraiding."),
+        QStringLiteral("Compilation, redeploiement Qt et lancement des modules LogiKnotting et LogiBraiding."),
         central);
     subtitle->setWordWrap(true);
 
@@ -71,7 +147,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_buildIfMissingCheck->setChecked(true);
 
     auto *qtHint = new QLabel(
-        QStringLiteral("Qt prefix: variable KNOTBRAID_QT_PREFIX (sinon C:/Qt/6.10.1/msvc2022_64)."),
+        QStringLiteral("Qt prefix: variable KNOTBRAID_QT_PREFIX, sinon auto-detection de C:/Qt/*/msvc2022_64."),
         central);
     qtHint->setWordWrap(true);
 
@@ -140,7 +216,56 @@ QString MainWindow::qtPrefixPath() const
         return envValue;
     }
 
-    return QStringLiteral("C:/Qt/6.10.1/msvc2022_64");
+    return defaultQtPrefixPath();
+}
+
+QString MainWindow::qtToolPath(const QString &toolName) const
+{
+    const QString candidate = QDir(qtPrefixPath()).filePath(QStringLiteral("bin/") + toolName);
+    QFileInfo info(candidate);
+    if (info.exists() && info.isFile()) {
+        return info.absoluteFilePath();
+    }
+
+    return QString();
+}
+
+bool MainWindow::qtRuntimeNeedsDeployment(const QString &exePath) const
+{
+#ifndef Q_OS_WIN
+    Q_UNUSED(exePath);
+    return false;
+#else
+    const QStringList runtimeDlls = {
+        QStringLiteral("Qt6Core.dll"),
+        QStringLiteral("Qt6Gui.dll"),
+        QStringLiteral("Qt6Widgets.dll")
+    };
+
+    const QDir exeDir(QFileInfo(exePath).absolutePath());
+    const QDir qtBinDir(QDir(qtPrefixPath()).filePath(QStringLiteral("bin")));
+
+    for (const QString &dllName : runtimeDlls) {
+        const QString deployedPath = exeDir.filePath(dllName);
+        const QString referencePath = qtBinDir.filePath(dllName);
+
+        QFileInfo referenceInfo(referencePath);
+        if (!referenceInfo.exists() || !referenceInfo.isFile()) {
+            continue;
+        }
+
+        QFileInfo deployedInfo(deployedPath);
+        if (!deployedInfo.exists() || !deployedInfo.isFile()) {
+            return true;
+        }
+
+        if (windowsFileVersion(deployedPath) != windowsFileVersion(referencePath)) {
+            return true;
+        }
+    }
+
+    return false;
+#endif
 }
 
 bool MainWindow::runCommand(const QString &program,
@@ -195,6 +320,43 @@ bool MainWindow::runCommand(const QString &program,
     return true;
 }
 
+bool MainWindow::deployQtRuntime(const QString &exePath, QString *errorMessage)
+{
+    const QString windeployqtPath = qtToolPath(QStringLiteral("windeployqt.exe"));
+    if (windeployqtPath.isEmpty()) {
+        if (errorMessage) {
+            errorMessage->clear();
+        }
+        return true;
+    }
+
+    const QFileInfo exeInfo(exePath);
+    if (!exeInfo.exists() || !exeInfo.isFile()) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("Executable introuvable pour le deploiement Qt: %1")
+                                .arg(exePath);
+        }
+        return false;
+    }
+
+    QString output;
+    if (!runCommand(windeployqtPath,
+                    {QStringLiteral("--release"),
+                     QStringLiteral("--force"),
+                     QStringLiteral("--compiler-runtime"),
+                     QDir::toNativeSeparators(exeInfo.absoluteFilePath())},
+                    exeInfo.absolutePath(),
+                    &output,
+                    errorMessage)) {
+        return false;
+    }
+
+    if (errorMessage) {
+        errorMessage->clear();
+    }
+    return true;
+}
+
 bool MainWindow::buildTarget(const AppTarget &target, QString *errorMessage)
 {
     const QString root = findRepoRoot();
@@ -235,6 +397,22 @@ bool MainWindow::buildTarget(const AppTarget &target, QString *errorMessage)
         return false;
     }
 
+    const QString exePath = findExecutable(target);
+    if (exePath.isEmpty()) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("Executable introuvable apres compilation pour %1.")
+                                .arg(target.displayName);
+        }
+        return false;
+    }
+
+    setStatus(QStringLiteral("Deploiement Qt de %1...").arg(target.displayName));
+    qApp->processEvents();
+
+    if (!deployQtRuntime(exePath, errorMessage)) {
+        return false;
+    }
+
     if (errorMessage) {
         errorMessage->clear();
     }
@@ -262,6 +440,15 @@ bool MainWindow::launchTarget(const AppTarget &target, QString *errorMessage)
                                 .arg(target.displayName, target.projectDir);
         }
         return false;
+    }
+
+    if (qtRuntimeNeedsDeployment(exePath)) {
+        setStatus(QStringLiteral("Preparation du runtime Qt pour %1...").arg(target.displayName));
+        qApp->processEvents();
+
+        if (!deployQtRuntime(exePath, errorMessage)) {
+            return false;
+        }
     }
 
     const QString workingDir = QFileInfo(exePath).absolutePath();

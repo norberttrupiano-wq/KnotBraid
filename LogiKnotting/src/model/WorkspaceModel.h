@@ -65,9 +65,11 @@ struct Action
         AddPoint
     };
 
-    Type    type;
-    QPointF positionMM;
-    int     ropeId = 0; // MIGRATION-PARALLEL: rope active au moment de l'ajout
+    Type         type;
+    QPointF      positionMM;
+    int          ropeId = 0; // MIGRATION-PARALLEL: rope active au moment de l'ajout
+    bool         hasAbsoluteX = false;
+    std::int64_t absoluteXMM = 0;
 };
 
 // ------------------------------------------------------------
@@ -105,6 +107,7 @@ public:
 
     void addPointMM(const QPointF& posMM);
     void addPoint(const QPointF& posMM);
+    void addPointAbs(const QPointF& posMM, std::int64_t xAbsMM);
 
     bool canUndo() const;
     bool canRedo() const;
@@ -120,6 +123,7 @@ public:
     const std::vector<QLineF>&   segments() const;
     const std::vector<Crossing>& crossings() const;
     void invertCrossing(std::size_t index);
+    bool setTopologyCrossingOver(const Domain::CrossingKey& key, bool s2OverS1);
 
     int ribbonLengthMM() const;
     int ribbonOffsetMM() const;
@@ -160,6 +164,7 @@ private:
     void rebuildPointsXAbs();
 
     void syncTopologyStoreFromLegacy();
+    std::int64_t resolveAbsoluteX(const Action& action) const;
 
     Orientation computeOrientation(const QLineF& seg) const;
 

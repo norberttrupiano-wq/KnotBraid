@@ -1,0 +1,48 @@
+<RCC>
+    <qresource prefix="/">
+        <file>icons/app_logibraiding.png</file>
+    </qresource>
+    <qresource prefix="/docs">
+        <file alias="3082-0.bmp">images/3082/3082-0.bmp</file>
+        <file alias="3082-01.bmp">images/3082/3082-01.bmp</file>
+        <file alias="3082-02.bmp">images/3082/3082-02.bmp</file>
+        <file alias="3082-03.bmp">images/3082/3082-03.bmp</file>
+        <file alias="3082-04.bmp">images/3082/3082-04.bmp</file>
+        <file alias="3082-05.bmp">images/3082/3082-05.bmp</file>
+        <file alias="3082-06.bmp">images/3082/3082-06.bmp</file>
+        <file alias="3082-07.bmp">images/3082/3082-07.bmp</file>
+        <file alias="3082-08.bmp">images/3082/3082-08.bmp</file>
+        <file alias="3082-09.bmp">images/3082/3082-09.bmp</file>
+        <file alias="3082-10.bmp">images/3082/3082-10.bmp</file>
+        <file alias="3082-11.bmp">images/3082/3082-11.bmp</file>
+        <file alias="3082-12.bmp">images/3082/3082-12.bmp</file>
+        <file alias="3082-13.bmp">images/3082/3082-13.bmp</file>
+        <file alias="3082-14.bmp">images/3082/3082-14.bmp</file>
+        <file alias="3082-15.bmp">images/3082/3082-15.bmp</file>
+        <file alias="3082-16.bmp">images/3082/3082-16.bmp</file>
+        <file alias="3082-17.bmp">images/3082/3082-17.bmp</file>
+        <file alias="3082-18.bmp">images/3082/3082-18.bmp</file>
+        <file alias="3082-19.bmp">images/3082/3082-19.bmp</file>
+        <file alias="3082-20.bmp">images/3082/3082-20.bmp</file>
+        <file alias="3082-21.bmp">images/3082/3082-21.bmp</file>
+        <file alias="3082-22.bmp">images/3082/3082-22.bmp</file>
+        <file alias="3082-23.bmp">images/3082/3082-23.bmp</file>
+        <file alias="3082-24.bmp">images/3082/3082-24.bmp</file>
+        <file alias="3082-25.bmp">images/3082/3082-25.bmp</file>
+        <file alias="3082-26.bmp">images/3082/3082-26.bmp</file>
+        <file alias="3082-27.bmp">images/3082/3082-27.bmp</file>
+        <file alias="3082-28.bmp">images/3082/3082-28.bmp</file>
+        <file alias="3082-29.bmp">images/3082/3082-29.bmp</file>
+        <file alias="3082-30.bmp">images/3082/3082-30.bmp</file>
+        <file alias="3082-31.bmp">images/3082/3082-31.bmp</file>
+        <file alias="3082-32.bmp">images/3082/3082-32.bmp</file>
+        <file alias="3082-33.bmp">images/3082/3082-33.bmp</file>
+        <file alias="3082-34.bmp">images/3082/3082-34.bmp</file>
+        <file alias="3082-35.bmp">images/3082/3082-35.bmp</file>
+        <file alias="3082-36.bmp">images/3082/3082-36.bmp</file>
+        <file alias="3082-37.bmp">images/3082/3082-37.bmp</file>
+        <file alias="3082-38.bmp">images/3082/3082-38.bmp</file>
+        <file alias="3082-39.bmp">images/3082/3082-39.bmp</file>
+        <file alias="3082-40.bmp">images/3082/3082-40.bmp</file>
+    </qresource>
+</RCC>

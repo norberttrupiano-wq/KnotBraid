@@ -9,27 +9,40 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+if(WIN32)
+    set(LOGIBRAIDING_WINDOWS_RESOURCES
+        resources/windows/logibraiding.rc
+    )
+endif()
+
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets LinguistTools)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets LinguistTools)
 
 set(TS_FILES resources/i18n/LogiBraiding_fr_FR.ts)
 
-set(PROJECT_SOURCES
-        src/main.cpp
-        src/ui/MainWindow.cpp
-        src/ui/MainWindow.h
-        src/ui/MainWindow.ui
+set(LOGIBRAIDING_APP_SOURCES
+        src/app/BraidingApplication.cpp
+        src/app/BraidingApplication.h
+        src/ui/BraidingMainWindow.cpp
+        src/ui/BraidingMainWindow.h
+        src/ui/BraidingMainWindow.ui
         src/ui/BraidBoardWidget.cpp
         src/ui/BraidBoardWidget.h
-        resources/resources.qrc
-        ${TS_FILES}
 )
+
+add_library(LogiBraidingAppLib STATIC
+    ${LOGIBRAIDING_APP_SOURCES}
+)
+
+target_link_libraries(LogiBraidingAppLib PRIVATE Qt${QT_VERSION_MAJOR}::Widgets)
+target_include_directories(LogiBraidingAppLib PUBLIC src)
 
 if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
     qt_add_executable(LogiBraiding
         MANUAL_FINALIZATION
-        ${PROJECT_SOURCES}
-        src/ui/MainWindow_copier.ui
+        src/main.cpp
+        resources/logibraiding_resources.qrc
+        ${LOGIBRAIDING_WINDOWS_RESOURCES}
     )
 # Define target properties for Android with Qt 6 as:
 #    set_property(TARGET LogiBraiding APPEND PROPERTY QT_ANDROID_PACKAGE_SOURCE_DIR
@@ -40,20 +53,24 @@ if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
 else()
     if(ANDROID)
         add_library(LogiBraiding SHARED
-            ${PROJECT_SOURCES}
+            src/main.cpp
+            resources/logibraiding_resources.qrc
+            ${LOGIBRAIDING_WINDOWS_RESOURCES}
         )
 # Define properties for Android with Qt 5 after find_package() calls as:
 #    set(ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/android")
     else()
         add_executable(LogiBraiding
-            ${PROJECT_SOURCES}
+            src/main.cpp
+            resources/logibraiding_resources.qrc
+            ${LOGIBRAIDING_WINDOWS_RESOURCES}
         )
     endif()
 
     qt5_create_translation(QM_FILES ${CMAKE_SOURCE_DIR} ${TS_FILES})
 endif()
 
-target_link_libraries(LogiBraiding PRIVATE Qt${QT_VERSION_MAJOR}::Widgets)
+target_link_libraries(LogiBraiding PRIVATE LogiBraidingAppLib Qt${QT_VERSION_MAJOR}::Widgets)
 
 # Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.
 # If you are developing for iOS or macOS you should consider setting an
@@ -79,6 +96,7 @@ install(TARGETS LogiBraiding
 if(QT_VERSION_MAJOR EQUAL 6)
     qt_finalize_executable(LogiBraiding)
 endif()
+
 
 
 

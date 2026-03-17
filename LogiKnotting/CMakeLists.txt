@@ -9,12 +9,19 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
+if(WIN32)
+    set(LOGIKNOTTING_WINDOWS_RESOURCES
+        resources/windows/logiknotting.rc
+    )
+endif()
+
 find_package(Qt6 REQUIRED COMPONENTS Widgets PrintSupport)
 
-add_executable(LogiKnotting
-    src/Main.cpp
-    src/ui/MainWindow.h
-    src/ui/MainWindow.cpp
+set(LOGIKNOTTING_APP_SOURCES
+    src/app/KnottingApplication.h
+    src/app/KnottingApplication.cpp
+    src/ui/KnottingMainWindow.h
+    src/ui/KnottingMainWindow.cpp
     src/ui/WorkspaceScene.h src/ui/WorkspaceScene.cpp
     src/ui/WorkspaceView.h src/ui/WorkspaceView.cpp
     src/ui/Animate.h src/ui/Animate.cpp
@@ -38,13 +45,24 @@ add_executable(LogiKnotting
     src/core/Ribbon.h
     src/core/RibbonMath.h src/core/RibbonMath.cpp
     src/core/DirectionVector.h
-    resources/resources.qrc
-
 )
 
-target_link_libraries(LogiKnotting PRIVATE Qt6::Widgets Qt6::PrintSupport)
+add_library(LogiKnottingAppLib STATIC
+    ${LOGIKNOTTING_APP_SOURCES}
+)
 
+target_link_libraries(LogiKnottingAppLib PRIVATE Qt6::Widgets Qt6::PrintSupport)
+target_include_directories(LogiKnottingAppLib PUBLIC src)
+
+add_executable(LogiKnotting
+    src/Main.cpp
+    resources/logiknotting_resources.qrc
+    ${LOGIKNOTTING_WINDOWS_RESOURCES}
+)
+
+target_link_libraries(LogiKnotting PRIVATE LogiKnottingAppLib Qt6::Widgets Qt6::PrintSupport)
 target_include_directories(LogiKnotting PRIVATE src)
+
 
 
 

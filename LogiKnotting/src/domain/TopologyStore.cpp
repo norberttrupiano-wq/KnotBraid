@@ -394,6 +394,26 @@ void TopologyStore::rebuildDerivedGeometry()
 
     bumpGeneration();
 }
+
+bool TopologyStore::setCrossingOver(const CrossingKey& key, bool s2OverS1)
+{
+    ensureInitialized();
+
+    for (auto& crossing : m_snapshot.crossings)
+    {
+        if (!(crossing.key < key) && !(key < crossing.key))
+        {
+            if (crossing.s2OverS1 == s2OverS1)
+                return true;
+
+            crossing.s2OverS1 = s2OverS1;
+            bumpGeneration();
+            return true;
+        }
+    }
+
+    return false;
+}
 } // namespace Domain
 
 // ============================================================

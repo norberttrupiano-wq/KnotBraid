@@ -64,6 +64,10 @@ public:
     // Grid visibility (print profile)
     void setGridVisible(bool visible);
     bool isGridVisible() const { return m_gridVisible; }
+    void setStrokeWidthScale(double scale);
+    double strokeWidthScale() const { return m_strokeWidthScale; }
+    void setPrintStrokeWidthMM(double widthMM);
+    double printStrokeWidthMM() const { return m_printStrokeWidthMM; }
 
     // Snap halo
     void updateSnapHalo(const QPointF& posMM);
@@ -125,11 +129,15 @@ private:
     RenderCrossing renderCrossingAt(int idx) const;
     QColor ropeColor(Domain::RopeId ropeId) const;
     bool crossingOverState(const RenderCrossing& rc) const;
+    bool crossingIsModified(const RenderCrossing& rc) const;
+    void markCrossingModified(const RenderCrossing& rc);
+    QString crossingTooltipText(const RenderCrossing& rc, int crossingIndex, bool includeEditHints) const;
 
     int findCrossingNear(const QPointF& worldPosMM, double radiusMM) const;
 
     // Legacy perf cache: crossings indexed by segmentBIndex
     void rebuildCrossingsCacheIfNeeded(std::size_t totalSegments);
+    void clearCrossingEditMarks();
 
 private:
     Model::WorkspaceModel* m_model = nullptr;
@@ -148,14 +156,16 @@ private:
     std::size_t m_animCompletedSegments = 0;
     double m_animProgress = 1.0;
     bool m_gridVisible = true;
+    double m_strokeWidthScale = 1.0;
+    double m_printStrokeWidthMM = 0.0;
 
     // Legacy perf cache
     std::size_t m_cacheSegmentsCount = 0;
     std::size_t m_cacheCrossingsCount = 0;
     std::vector<std::vector<const Model::Crossing*>> m_crossingsBySegB;
 
-    // Rendering-layer override for topology crossing over/under
-    std::map<Domain::CrossingKey, bool> m_topologyOverByKey;
+    std::vector<bool> m_legacyModifiedCrossings;
+    std::map<Domain::CrossingKey, bool> m_topologyModifiedCrossings;
 };
 
 // ============================================================

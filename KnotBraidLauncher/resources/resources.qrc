@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/">
+        <file>icons/app_knotbraid.png</file>
+    </qresource>
+</RCC>

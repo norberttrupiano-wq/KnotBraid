@@ -19,8 +19,10 @@ Le dépôt est organisé en **monorepo** afin de publier l’ensemble de la suit
 
 - Windows (PowerShell)
 - CMake 3.16 ou supérieur
-- Qt 6 (exemple local : `C:/Qt/6.10.1/msvc2022_64`)
+- Qt 6 (exemple local : `C:/Qt/6.10.2/msvc2022_64`)
 - Compilateur C++17 (MSVC)
+
+Note: `launch-suite.ps1` et `KnotBraidLauncher` utilisent d'abord `KNOTBRAID_QT_PREFIX`, sinon ils detectent automatiquement le dernier `C:/Qt/*/msvc2022_64`.
 
 ## Compilation rapide
 
@@ -29,14 +31,14 @@ Depuis la racine `E:/KnotBraid` :
 ### LogiKnotting
 
 ```powershell
-cmake -S LogiKnotting -B LogiKnotting/build -DCMAKE_PREFIX_PATH="C:/Qt/6.10.1/msvc2022_64"
+cmake -S LogiKnotting -B LogiKnotting/build -DCMAKE_PREFIX_PATH="C:/Qt/6.10.2/msvc2022_64"
 cmake --build LogiKnotting/build --config Release
 ```
 
 ### LogiBraiding
 
 ```powershell
-cmake -S LogiBraiding -B LogiBraiding/build -DCMAKE_PREFIX_PATH="C:/Qt/6.10.1/msvc2022_64"
+cmake -S LogiBraiding -B LogiBraiding/build -DCMAKE_PREFIX_PATH="C:/Qt/6.10.2/msvc2022_64"
 cmake --build LogiBraiding/build --config Release
 ```
 

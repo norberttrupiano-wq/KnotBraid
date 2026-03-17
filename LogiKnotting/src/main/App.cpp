@@ -26,17 +26,21 @@
 // Repository  : https://github.com/norberttrupiano-wq/LogiKnotting
 // File        : src/main/App.cpp
 // Created     : 2026-03-06
-// Updated     : 2026-03-07
+// Updated     : 2026-03-14
 // Description :
 // ============================================================
+
 #include <QApplication>
-#include "MainWindow.h"
+
+#include "../app/KnottingApplication.h"
+#include "../ui/KnottingMainWindow.h"
 
 int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
+    LogiKnottingApp::initializeApplication();
 
-    MainWindow w;
+    LogiKnottingApp::MainWindow w;
     w.show();
 
     return app.exec();

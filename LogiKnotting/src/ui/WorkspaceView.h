@@ -73,6 +73,9 @@ private:
     // --------------------------------------------------------
     bool                    m_sketchHasAnchor = false;
     QPointF                 m_sketchAnchorMM;
+    bool                    m_hasPreviousSketchAnchor = false;
+    QPointF                 m_previousSketchAnchorMM;
+    std::vector<std::vector<QPointF>> m_sketchGuidePaths;
     std::vector<QLineF>     m_sketchSegments;
     std::vector<QPointF>    m_sketchPoints;   // optionnel (trace/diagnostic)
 
@@ -82,6 +85,8 @@ private:
         std::vector<QPointF> points;
         bool hasAnchor = false;
         QPointF anchor;
+        bool hasPreviousAnchor = false;
+        QPointF previousAnchor;
         bool sketchBreak = false;
     };
 
@@ -112,6 +117,8 @@ private:
 
     bool m_hasLastSketchCursor = false;
     QPointF m_lastSketchCursorMM;
+    bool m_hasPreviewDisplayReference = false;
+    QPointF m_previewDisplayReferenceMM;
 
 public:
     explicit WorkspaceView(QWidget* parent = nullptr);
@@ -182,7 +189,15 @@ private:
     void cancelSketchTransformDrag();
 
     void rebuildSketchPointsFromSegments();
+    void rebuildSketchOverlayFromGuidePaths();
+    bool consumeGuidePathByTrace(const QLineF& tracedAbsSegment);
     bool eraseSketchCoveredBySegment(const QLineF& tracedAbsSegment);
+    bool resolveSketchPointFromDisplay(const QPointF& clickedDisplayAbsMM,
+                                      QPointF* resolvedAbsMM) const;
+    bool resolveConnectedSketchEndpoint(const QPointF& currentAbsMM,
+                                       const QPointF& clickedDisplayAbsMM,
+                                       QPointF* resolvedAbsMM,
+                                       const QPointF* previousAbsMM = nullptr) const;
 
     QPointF m_previewStart;
     QPointF m_previewEnd;
@@ -249,8 +264,3 @@ private:
 // End Of File
 // ============================================================
 
-
-
-
-
-};

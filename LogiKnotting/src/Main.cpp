@@ -26,36 +26,26 @@
 // Repository  : https://github.com/norberttrupiano-wq/LogiKnotting
 // File        : src/Main.cpp
 // Created     : 2026-03-06
-// Updated     : 2026-03-07
+// Updated     : 2026-03-14
 // Description :
 // ============================================================
 
-#include "ui/MainWindow.h"
+#include "app/KnottingApplication.h"
+#include "ui/KnottingMainWindow.h"
 
 #include <QApplication>
-#include <QFont>
-#include <QFontDatabase>
+#include <QIcon>
 
 int main(int argc, char* argv[])
 {
     QApplication app(argc, argv);
+    app.setWindowIcon(QIcon(QStringLiteral(":/icons/app_logiknotting.png")));
+    LogiKnottingApp::initializeApplication();
 
-    // Chargement des polices Noto
-    QFontDatabase::addApplicationFont(":/fonts/NotoSans-Regular.ttf");
-    QFontDatabase::addApplicationFont(":/fonts/NotoSansArabic-Regular.ttf");
-    QFontDatabase::addApplicationFont(":/fonts/NotoSansHebrew-Regular.ttf");
-    QFontDatabase::addApplicationFont(":/fonts/NotoSansJP-Regular.ttf");
-    QFontDatabase::addApplicationFont(":/fonts/NotoSansSC-Regular.ttf");
-    QFontDatabase::addApplicationFont(":/fonts/NotoSansTC-Regular.ttf");
-    QFontDatabase::addApplicationFont(":/fonts/NotoSansKR-Regular.ttf");
-
-    // Police globale
-    QFont font("Noto Sans");
-    QApplication::setFont(font);
-
-    MainWindow w;
+    LogiKnottingApp::MainWindow w;
+    w.setWindowIcon(app.windowIcon());
     w.show();
-    w.showMaximized();   // Ligne Figée - interdiction de supprimer, modifier, même d'une virgule, sauf en cas de malveillance manifeste.
+    w.showMaximized();   // Ligne Figee - interdiction de supprimer, modifier, meme d'une virgule, sauf en cas de malveillance manifeste.
 
     return app.exec();
 }

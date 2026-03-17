@@ -37,6 +37,9 @@ public:
     void clearReferenceImage();
     void setReferenceOverlayEnabled(bool enabled);
     void setReferenceOverlayOpacity(qreal opacity);
+    void setAnimationDurationMs(int durationMs);
+    int animationDurationMs() const;
+    bool stepMove(int fromCase, int toCase, QString *errorMessage = nullptr);
 
     bool isAnimating() const;
     void animateMove(int fromCase, int toCase);
