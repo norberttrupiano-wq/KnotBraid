@@ -33,6 +33,7 @@ private slots:
     void showHome();
     void showKnotting();
     void showBraiding();
+    void openLanguageMenu();
 
 private:
     enum class Page {
@@ -58,12 +59,16 @@ private:
     void setStoredPositionForPage(Page page, const QPoint &position);
     void loadShellPreferences();
     void saveShellPreferences() const;
+    QString currentUiLanguageCode() const;
+    void applyShellUiLanguage(const QString &languageCode);
+    QString currentPageArgument() const;
 
     QWidget *m_contentArea = nullptr;
     QFrame *m_floatingBar = nullptr;
     QPushButton *m_homeButton = nullptr;
     QPushButton *m_knottingButton = nullptr;
     QPushButton *m_braidingButton = nullptr;
+    QPushButton *m_languageButton = nullptr;
     QPushButton *m_helpButton = nullptr;
 
     QStackedWidget *m_stack = nullptr;

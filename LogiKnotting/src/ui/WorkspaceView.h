@@ -32,11 +32,14 @@
 #pragma once
 
 #include <QGraphicsView>
+#include <QJsonObject>
 #include <QPointF>
 #include <QLineF>
 #include <QRectF>
 #include <cstdint>
 #include <vector>
+
+#include "../domain/TopologyTypes.h"
 
 namespace Ui { class Animate; }
 
@@ -54,13 +57,16 @@ public slots:
     void enterSketchMode();
     void breakSketch();
     void enterTracingMode();
+    void enterCrossingEditMode();
     void zoomInView();
     void zoomOutView();
     void zoomResetView();
     void triggerUndo();
     void triggerRedo();
-    void rotateSelectionRight45();
-    void invertSelectionDirection();
+    void rotateSelectionRight90();
+    void rotateSelectionLeft90();
+    void flipSelectionVertically();
+    void flipSelectionHorizontally();
 
 private:
     bool m_sketchMode = false;
@@ -99,6 +105,17 @@ private:
     QPointF m_sketchSelectionEndMM;
     std::vector<int> m_sketchSelectedSegmentIndices;
 
+    bool m_sketchEndpointDragPending = false;
+    bool m_sketchEndpointDragging = false;
+    bool m_sketchEndpointUndoPrimed = false;
+    int m_sketchEndpointSegmentIndex = -1;
+    bool m_sketchEndpointMovesP1 = false;
+    QPointF m_sketchEndpointPressMM;
+    QPointF m_sketchEndpointOriginalPointMM;
+    QPointF m_sketchEndpointFixedPointMM;
+    QPointF m_sketchEndpointFixedVisibleMM;
+    QPointF m_sketchEndpointLastDisplayMM;
+
     bool m_sketchTransforming = false;
     bool m_sketchTransformCopy = false;
     bool m_sketchTransformUndoPrimed = false;
@@ -125,8 +142,11 @@ public:
     void setModel(Model::WorkspaceModel* model);
     void setReadOnlyValidated(bool enabled);
     bool isReadOnlyValidated() const { return m_readOnlyValidated; }
+    bool isSketchMode() const { return m_sketchMode; }
     void copyModelGeometryToSketch();
     void clearSketchOverlay();
+    QJsonObject exportSketchOverlayState() const;
+    void importSketchOverlayState(const QJsonObject& sketchOverlayState);
 
     // --------------------------------------------------------
     // Animation
@@ -152,6 +172,7 @@ public:
 signals:
     void mousePositionChanged(const QPointF& posMM);
     void crossingEditModeChanged(bool enabled);
+    void interactionModeChanged();
 
 protected:
     void paintEvent(QPaintEvent* e) override;
@@ -178,20 +199,39 @@ private:
     void clearSketchSelection();
     QRectF currentSketchSelectionRectMM() const;
     void updateSketchSelectionFromRect();
+    bool collectSelectedSketchSegments(std::vector<int>* indices, QRectF* boundsMM) const;
+    void finalizeSketchSelectionTransform(const std::vector<int>& indices);
     bool copySketchSelectionToClipboard();
     bool pasteSketchClipboardAt(const QPointF& targetAbsMM);
     bool deleteSketchSelection();
+    bool handleSketchLeftClick(const QPointF& scenePos, Qt::KeyboardModifiers modifiers);
+    bool findResizableSketchEndpoint(const QPointF& displayAbsMM,
+                                     int* segmentIndex,
+                                     bool* endpointIsP1,
+                                     QPointF* endpointAbsMM,
+                                     QPointF* fixedAbsMM,
+                                     QPointF* fixedVisibleMM,
+                                     QPointF* endpointVisibleMM) const;
 
     bool hasSketchSelectionAt(const QPointF& absMM) const;
     bool beginSketchTransformDrag(const QPointF& startAbsMM, bool copyMode);
     void updateSketchTransformDrag(const QPointF& currentAbsMM);
     void finishSketchTransformDrag(const QPointF& endAbsMM);
     void cancelSketchTransformDrag();
+    void beginSketchEndpointDrag();
+    void updateSketchEndpointDrag(const QPointF& currentDisplayAbsMM, int snapStep);
+    void finishSketchEndpointDrag(const QPointF& endDisplayAbsMM, int snapStep);
+    void cancelSketchEndpointDrag();
+    void clearPendingSketchEndpointDrag();
+    void replaceSketchStoredPoint(const QPointF& oldPoint, const QPointF& newPoint);
 
     void rebuildSketchPointsFromSegments();
     void rebuildSketchOverlayFromGuidePaths();
     bool consumeGuidePathByTrace(const QLineF& tracedAbsSegment);
     bool eraseSketchCoveredBySegment(const QLineF& tracedAbsSegment);
+    bool findTracingSegmentNear(const QPointF& absMM, Domain::SegmentRef* outRef) const;
+    void clearTracingSegmentSelection();
+    bool deleteTracingSegmentSelection();
     bool resolveSketchPointFromDisplay(const QPointF& clickedDisplayAbsMM,
                                       QPointF* resolvedAbsMM) const;
     bool resolveConnectedSketchEndpoint(const QPointF& currentAbsMM,
@@ -208,18 +248,18 @@ private:
     bool m_sketchBreak = false;
 //    bool m_sketchMode  = false;
     //========================================================
-    // Mode Crossings (LK-STRICT) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Touche Insert
+    // Mode Crossings (LK-STRICT)
     //========================================================
     bool m_crossingEditMode = false;
     bool m_readOnlyValidated = false;
     int  m_activeCrossingIndex = -1;
 
-    void enterCrossingEditMode();
     void exitCrossingEditMode();
     void setActiveCrossingIndex(int idx, bool recenter);
     void centerOnActiveCrossingX();
     void warpCursorToActiveCrossing();
     QPoint activeCrossingGlobalTooltipPos() const;
+    void showTransientStatusMessage(const QString& text, int timeoutMs = 3000) const;
 
     // ===============================
     // MÃƒÆ’Ã‚Â©moire topologique absolue
@@ -229,6 +269,7 @@ private:
 
     std::int64_t m_lastPointXAbs = 0;
     bool         m_hasLastPointXAbs = false;
+    Domain::SegmentRef m_tracingSelectedSegment;
 
     // --------------------------------------------------------
     // Transform UNIQUE

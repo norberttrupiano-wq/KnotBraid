@@ -1,0 +1,3 @@
+pour commencer à dessiner un nœud, il faut d'abord poser un point de départ, en cliquant sur le ruban, ici en position 10,10 sur le ruban, en déplaçant la souris un filet suit le mouvement de la souris, s'il est de couleur rouge, il est impossible de poser un vecteur dans cette direction.
+les seules directions autorisées sont celles de la rose des vents : Sud-Est, Est, Nord-Est, Nord, Nord-Ouest, Ouest, Sud-Ouest, Sud. lorsque ces directions sont orientées, le filet passe en couleur verte, vous pouvez alors poser un deuxième point, ce qui trace un premier segment, on oriente alors la souris vers une autre position autorisée et en cliquant tracer le deuxième segment, en cas d'erreur, vous pouvez revenir en arrière avec la combinaison Ctrl+Y.
+

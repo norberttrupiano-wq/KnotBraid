@@ -32,6 +32,7 @@
 #pragma once
 
 #include <QColor>
+#include <QJsonObject>
 #include <QLineF>
 #include <QPointF>
 #include <QString>
@@ -151,6 +152,10 @@ public:
     void setRopeColor(int ropeId, const QColor& color);
     QColor ropeColor(int ropeId) const;
     const Domain::TopologySnapshot& topologySnapshot() const;
+    bool truncateRopeAfterSegment(const Domain::SegmentRef& ref);
+    void setSketchOverlayState(const QJsonObject& sketchOverlayState);
+    QJsonObject sketchOverlayState() const;
+    void clearSketchOverlayState();
 
 private:
     void apply(const Action& action);
@@ -164,6 +169,7 @@ private:
     void rebuildPointsXAbs();
 
     void syncTopologyStoreFromLegacy();
+    void syncLegacyFromTopologyRope(Domain::RopeId ropeId);
     std::int64_t resolveAbsoluteX(const Action& action) const;
 
     Orientation computeOrientation(const QLineF& seg) const;
@@ -201,6 +207,7 @@ private:
     QString m_lastModifiedAtUtcIso;
     std::int64_t m_totalWorkSeconds = 0;
     std::vector<FileHistoryEntry> m_fileHistory;
+    QJsonObject m_sketchOverlayState;
 
     Domain::TopologyStore m_topologyStore;
 };

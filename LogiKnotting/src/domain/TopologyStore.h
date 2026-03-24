@@ -58,6 +58,7 @@ public:
     void appendLogicalPoint(const QPointF& logicalPoint);
     void appendLogicalPointForRope(RopeId ropeId, const QPointF& logicalPoint);
     bool popLastPointFromRope(RopeId ropeId);
+    bool truncateRopeToPointCount(RopeId ropeId, std::size_t pointCount);
 
     void appendAbsPointToRope(RopeId ropeId, std::int64_t xAbs, std::int32_t y);
     void rebuildDerivedGeometry();

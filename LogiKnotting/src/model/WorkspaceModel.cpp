@@ -223,6 +223,7 @@ const std::vector<Crossing>& WorkspaceModel::crossings() const
 void WorkspaceModel::setActiveRopeId(int ropeId)
 {
     m_topologyStore.setActiveRopeId(static_cast<Domain::RopeId>(ropeId));
+    syncLegacyFromTopologyRope(static_cast<Domain::RopeId>(ropeId));
 }
 
 int WorkspaceModel::activeRopeId() const
@@ -261,6 +262,49 @@ QColor WorkspaceModel::ropeColor(int ropeId) const
 const Domain::TopologySnapshot& WorkspaceModel::topologySnapshot() const
 {
     return m_topologyStore.snapshot();
+}
+
+bool WorkspaceModel::truncateRopeAfterSegment(const Domain::SegmentRef& ref)
+{
+    const auto& topo = m_topologyStore.snapshot();
+    const std::size_t ropeIndex = static_cast<std::size_t>(ref.ropeId);
+    if (ropeIndex >= topo.ropes.size() || ref.segIndex < 0)
+        return false;
+
+    const auto& rope = topo.ropes[ropeIndex];
+    const std::size_t keepPointCount = static_cast<std::size_t>(ref.segIndex) + 1;
+    if (keepPointCount >= rope.points.size())
+        return false;
+
+    startDesignTimeIfNeeded();
+
+    if (!m_topologyStore.truncateRopeToPointCount(ref.ropeId, keepPointCount))
+        return false;
+
+    m_topologyStore.setActiveRopeId(ref.ropeId);
+    syncLegacyFromTopologyRope(ref.ropeId);
+
+    while (!m_undoStack.empty())
+        m_undoStack.pop();
+    while (!m_redoStack.empty())
+        m_redoStack.pop();
+
+    return true;
+}
+
+void WorkspaceModel::setSketchOverlayState(const QJsonObject& sketchOverlayState)
+{
+    m_sketchOverlayState = sketchOverlayState;
+}
+
+QJsonObject WorkspaceModel::sketchOverlayState() const
+{
+    return m_sketchOverlayState;
+}
+
+void WorkspaceModel::clearSketchOverlayState()
+{
+    m_sketchOverlayState = QJsonObject();
 }
 
 bool WorkspaceModel::canValidateAsLocked() const
@@ -608,6 +652,36 @@ void WorkspaceModel::syncTopologyStoreFromLegacy()
 
         m_topologyStore.setCrossingOver(legacyCrossingKey(crossing), crossing.newSegmentOver);
     }
+}
+
+void WorkspaceModel::syncLegacyFromTopologyRope(Domain::RopeId ropeId)
+{
+    m_points.clear();
+    m_pointsXAbs.clear();
+    m_segments.clear();
+    m_segmentOrientations.clear();
+    m_crossings.clear();
+
+    const auto& topo = m_topologyStore.snapshot();
+    const std::size_t ropeIndex = static_cast<std::size_t>(ropeId);
+    if (ropeIndex >= topo.ropes.size())
+        return;
+
+    const auto& rope = topo.ropes[ropeIndex];
+    m_points.reserve(rope.points.size());
+    m_pointsXAbs.reserve(rope.points.size());
+
+    const std::int64_t L = static_cast<std::int64_t>(m_ribbonLengthMM);
+    for (const auto& point : rope.points)
+    {
+        const double xLogical =
+            (L > 0) ? static_cast<double>(normalizeModI64(point.xAbs, L))
+                    : static_cast<double>(point.xAbs);
+        m_points.emplace_back(xLogical, static_cast<double>(point.y));
+        m_pointsXAbs.push_back(point.xAbs);
+    }
+
+    rebuildSegments();
 }
 
 // ------------------------------------------------------------
@@ -1109,6 +1183,12 @@ bool WorkspaceModel::saveToFile(const QString& filePath) const
     }
     root["topology_crossings"] = topologyCrossingsArray;
 
+    if (filePath.endsWith(QStringLiteral(".lkw"), Qt::CaseInsensitive)
+        && !m_sketchOverlayState.isEmpty())
+    {
+        root["sketch_overlay"] = m_sketchOverlayState;
+    }
+
     const QString integrityNonce = makeIntegrityNonce();
     QJsonObject integrity;
     integrity["alg"] = QString::fromLatin1(kIntegrityAlgorithm);
@@ -1198,6 +1278,7 @@ bool WorkspaceModel::loadFromFile(const QString& filePath)
     m_segmentOrientations.clear();
     m_pointsXAbs.clear();
     m_fileHistory.clear();
+    m_sketchOverlayState = QJsonObject();
 
     m_creatorAuthorId.clear();
     m_createdAtUtcIso.clear();
@@ -1328,6 +1409,9 @@ bool WorkspaceModel::loadFromFile(const QString& filePath)
     for (auto it = topologyCrossingStates.begin(); it != topologyCrossingStates.end(); ++it)
         m_topologyStore.setCrossingOver(it->first, it->second);
 
+    if (filePath.endsWith(QStringLiteral(".lkw"), Qt::CaseInsensitive))
+        m_sketchOverlayState = root["sketch_overlay"].toObject();
+
     return true;
 }
 
@@ -1379,6 +1463,7 @@ void WorkspaceModel::clear()
     m_lastModifiedAtUtcIso.clear();
     m_totalWorkSeconds = 0;
     m_fileHistory.clear();
+    m_sketchOverlayState = QJsonObject();
     resetDesignTime();
 }
 void WorkspaceModel::resizeRibbonMM(int deltaMM)

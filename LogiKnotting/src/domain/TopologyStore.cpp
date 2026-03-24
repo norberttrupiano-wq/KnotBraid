@@ -259,6 +259,25 @@ bool TopologyStore::popLastPointFromRope(RopeId ropeId)
     return true;
 }
 
+bool TopologyStore::truncateRopeToPointCount(RopeId ropeId, std::size_t pointCount)
+{
+    ensureInitialized();
+
+    if (ropeId >= MaxRopes)
+        return false;
+
+    auto& rope = m_snapshot.ropes[static_cast<std::size_t>(ropeId)];
+    if (pointCount > rope.points.size())
+        return false;
+
+    if (pointCount == rope.points.size())
+        return true;
+
+    rope.points.resize(pointCount);
+    rebuildDerivedGeometry();
+    return true;
+}
+
 void TopologyStore::appendAbsPointToRope(RopeId ropeId, std::int64_t xAbs, std::int32_t y)
 {
     ensureInitialized();

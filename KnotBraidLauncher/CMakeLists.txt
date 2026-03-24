@@ -9,7 +9,30 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets PrintSupport CoreTools)
+file(GLOB KNOTBRAID_LOGIKNOTTING_TRANSLATION_QM_FILES
+    "${CMAKE_CURRENT_SOURCE_DIR}/../LogiKnotting/translations/*.qm"
+)
+
+file(GLOB KNOTBRAID_DOC_PDF_FILES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/../Docs/*.pdf"
+)
+
+set(KNOTBRAID_TUTORIAL_ASSET_DIR "")
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../Docs/tutorial")
+    set(KNOTBRAID_TUTORIAL_ASSET_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../Docs/tutorial")
+elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../Docs/Tutorial")
+    set(KNOTBRAID_TUTORIAL_ASSET_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../Docs/Tutorial")
+elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../Docs/tutoriel")
+    set(KNOTBRAID_TUTORIAL_ASSET_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../Docs/tutoriel")
+elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../Docs/Tutoriel")
+    set(KNOTBRAID_TUTORIAL_ASSET_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../Docs/Tutoriel")
+elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../Docs/Videos Tutoriel")
+    set(KNOTBRAID_TUTORIAL_ASSET_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../Docs/Videos Tutoriel")
+elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../Docs/Vidéos Tutoriel")
+    set(KNOTBRAID_TUTORIAL_ASSET_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../Docs/Vidéos Tutoriel")
+endif()
+
+find_package(Qt6 REQUIRED COMPONENTS Widgets PrintSupport CoreTools Multimedia MultimediaWidgets)
 
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../LogiBraiding"
                  "${CMAKE_CURRENT_BINARY_DIR}/LogiBraiding"
@@ -75,6 +98,8 @@ qt_add_executable(KnotBraidLauncher
 
 target_link_libraries(KnotBraid PRIVATE
     Qt6::Widgets
+    Qt6::Multimedia
+    Qt6::MultimediaWidgets
     Qt6::PrintSupport
     LogiBraidingAppLib
     LogiKnottingAppLib
@@ -91,6 +116,47 @@ endif()
 if(WIN32)
     knotbraid_add_qt_deploy(KnotBraid)
     knotbraid_add_qt_deploy(KnotBraidLauncher)
+endif()
+
+if(KNOTBRAID_LOGIKNOTTING_TRANSLATION_QM_FILES)
+    add_custom_command(TARGET KnotBraid POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:KnotBraid>/translations"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${KNOTBRAID_LOGIKNOTTING_TRANSLATION_QM_FILES}
+            "$<TARGET_FILE_DIR:KnotBraid>/translations"
+        COMMENT "Copying LogiKnotting translations for KnotBraid"
+        VERBATIM
+    )
+endif()
+
+if(KNOTBRAID_DOC_PDF_FILES)
+    add_custom_command(TARGET KnotBraid POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:KnotBraid>/docs"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${KNOTBRAID_DOC_PDF_FILES}
+            "$<TARGET_FILE_DIR:KnotBraid>"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${KNOTBRAID_DOC_PDF_FILES}
+            "$<TARGET_FILE_DIR:KnotBraid>/docs"
+        COMMENT "Copying KnotBraid PDF documentation for KnotBraid"
+        VERBATIM
+    )
+endif()
+
+if(KNOTBRAID_TUTORIAL_ASSET_DIR)
+    add_custom_command(TARGET KnotBraid POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:KnotBraid>/docs"
+        COMMAND ${CMAKE_COMMAND} -E remove_directory "$<TARGET_FILE_DIR:KnotBraid>/docs/tutorial"
+        COMMAND ${CMAKE_COMMAND} -E remove_directory "$<TARGET_FILE_DIR:KnotBraid>/docs/Tutorial"
+        COMMAND ${CMAKE_COMMAND} -E remove_directory "$<TARGET_FILE_DIR:KnotBraid>/docs/Tutoriel"
+        COMMAND ${CMAKE_COMMAND} -E remove_directory "$<TARGET_FILE_DIR:KnotBraid>/docs/Vidéos Tutoriel"
+        COMMAND ${CMAKE_COMMAND} -E remove_directory "$<TARGET_FILE_DIR:KnotBraid>/docs/Videos Tutoriel"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${KNOTBRAID_TUTORIAL_ASSET_DIR}"
+            "$<TARGET_FILE_DIR:KnotBraid>/docs/tutorial"
+        COMMENT "Copying KnotBraid tutorial assets for KnotBraid"
+        VERBATIM
+    )
 endif()
 
 qt_finalize_executable(KnotBraid)

@@ -15,12 +15,24 @@ QSettings appSettings()
                      QStringLiteral("LogiBraiding"));
 }
 
+QSettings shellSettings()
+{
+    return QSettings(QSettings::NativeFormat,
+                     QSettings::UserScope,
+                     QStringLiteral("KnotBraid"),
+                     QStringLiteral("Shell"));
+}
+
 QStringList uiLanguagesFromSettings()
 {
-    const QString configuredLanguage = appSettings()
-                                           .value(QStringLiteral("ui/language"), QStringLiteral("auto"))
-                                           .toString()
-                                           .trimmed();
+    QString configuredLanguage =
+        shellSettings().value(QStringLiteral("ui/language")).toString().trimmed();
+    if (configuredLanguage.isEmpty()) {
+        configuredLanguage = appSettings()
+                                 .value(QStringLiteral("ui/language"), QStringLiteral("auto"))
+                                 .toString()
+                                 .trimmed();
+    }
 
     QStringList uiLanguages;
     auto appendUniqueLocale = [&uiLanguages](const QString &locale) {

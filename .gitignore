@@ -5,11 +5,14 @@
 # Build outputs
 **/build/
 **/build-*/
+**/build_*/
+Installer/Output/
 
 # IDE local files
 **/.qtcreator/
 *.user
 *.autosave
+~$*
 
 # OS / archives
 Thumbs.db

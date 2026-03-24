@@ -28,6 +28,7 @@
 #include <QKeySequence>
 #include <QLabel>
 #include <QLineEdit>
+#include <QLocale>
 #include <QMessageBox>
 #include <QMenu>
 #include <QPushButton>
@@ -137,6 +138,14 @@ static QSettings appSettings()
                      QStringLiteral("LogiBraiding"));
 }
 
+static QSettings shellSettings()
+{
+    return QSettings(QSettings::NativeFormat,
+                     QSettings::UserScope,
+                     QStringLiteral("KnotBraid"),
+                     QStringLiteral("Shell"));
+}
+
 static QString currentAppDataBraidsCatalogPath()
 {
     QString appDataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
@@ -174,6 +183,70 @@ static QString referenceDrawingSettingKey(const QString &patternCode)
 static QString uiLanguageSettingKey()
 {
     return QStringLiteral("ui/language");
+}
+
+static QString canonicalUiLanguageCode(const QString &languageCode)
+{
+    const QString trimmed = languageCode.trimmed();
+    if (trimmed.isEmpty()) {
+        return QStringLiteral("auto");
+    }
+
+    if (trimmed.compare(QStringLiteral("auto"), Qt::CaseInsensitive) == 0) {
+        return QStringLiteral("auto");
+    }
+
+    QString normalized = trimmed;
+    normalized.replace(QLatin1Char('-'), QLatin1Char('_'));
+
+    const QString localeName = QLocale(normalized).name();
+    const QString baseLanguage = localeName.section(QLatin1Char('_'), 0, 0);
+    return baseLanguage.isEmpty() ? normalized : baseLanguage;
+}
+
+static QString effectiveUiLanguageCode()
+{
+    QString configured = shellSettings().value(uiLanguageSettingKey()).toString().trimmed();
+    if (configured.isEmpty()) {
+        configured = appSettings().value(uiLanguageSettingKey(), QStringLiteral("auto")).toString().trimmed();
+    }
+
+    const QString normalized = canonicalUiLanguageCode(configured);
+    if (normalized == QStringLiteral("auto")) {
+        const QStringList systemLanguages = QLocale::system().uiLanguages();
+        for (const QString &locale : systemLanguages) {
+            const QString base = locale.section(QLatin1Char('-'), 0, 0).section(QLatin1Char('_'), 0, 0);
+            if (base == QStringLiteral("en") || base == QStringLiteral("de") || base == QStringLiteral("it")) {
+                return base;
+            }
+        }
+        return QStringLiteral("fr");
+    }
+
+    if (normalized == QStringLiteral("en") || normalized == QStringLiteral("de") ||
+        normalized == QStringLiteral("it")) {
+        return normalized;
+    }
+
+    return QStringLiteral("fr");
+}
+
+static QString uiText(const QString &languageCode,
+                      const char *fr,
+                      const char *en,
+                      const char *de,
+                      const char *it)
+{
+    if (languageCode == QStringLiteral("en")) {
+        return QString::fromUtf8(en);
+    }
+    if (languageCode == QStringLiteral("de")) {
+        return QString::fromUtf8(de);
+    }
+    if (languageCode == QStringLiteral("it")) {
+        return QString::fromUtf8(it);
+    }
+    return QString::fromUtf8(fr);
 }
 
 static QString selectedBraidSettingKey()
@@ -1062,9 +1135,87 @@ MainWindow::~MainWindow()
     delete ui;
 }
 
+void MainWindow::applyChromeStyle()
+{
+    if (QWidget *topWidget = menuWidget()) {
+        topWidget->setObjectName(QStringLiteral("topChromeWidget"));
+        topWidget->setStyleSheet(QStringLiteral(
+            "#topChromeWidget {"
+            " background: #f6ede2;"
+            " border-bottom: 1px solid #d7c2aa;"
+            " }"
+            "#topChromeWidget QLabel {"
+            " color: #2f2418;"
+            " }"
+            "#topChromeWidget QComboBox,"
+            "#topChromeWidget QPushButton,"
+            "#topChromeWidget QToolButton {"
+            " color: #2f2418;"
+            " background: #fffdfa;"
+            " border: 1px solid #d7c2aa;"
+            " border-radius: 8px;"
+            " padding: 4px 10px;"
+            " }"
+            "#topChromeWidget QComboBox::drop-down {"
+            " border: none;"
+            " width: 18px;"
+            " }"
+            "#topChromeWidget QComboBox QAbstractItemView {"
+            " background: #fffdfa;"
+            " color: #2f2418;"
+            " selection-background-color: #efe1d0;"
+            " selection-color: #221a12;"
+            " border: 1px solid #d7c2aa;"
+            " }"
+            "#topChromeWidget QPushButton:hover,"
+            "#topChromeWidget QToolButton:hover,"
+            "#topChromeWidget QComboBox:hover {"
+            " background: #f3e7d9;"
+            " }"
+            "#topChromeWidget QPushButton:pressed,"
+            "#topChromeWidget QToolButton:pressed {"
+            " background: #ead9c7;"
+            " }"
+            "#topChromeWidget QMenu {"
+            " background: #fffdfa;"
+            " color: #2f2418;"
+            " border: 1px solid #d7c2aa;"
+            " }"
+            "#topChromeWidget QMenu::item {"
+            " color: #2f2418;"
+            " padding: 6px 24px 6px 28px;"
+            " }"
+            "#topChromeWidget QMenu::item:selected {"
+            " background: #efe1d0;"
+            " color: #221a12;"
+            " }"
+            "#topChromeWidget QMenu::separator {"
+            " height: 1px;"
+            " background: #e3d3bf;"
+            " margin: 5px 10px;"
+            " }"));
+    }
+
+    if (statusBar()) {
+        statusBar()->setStyleSheet(QStringLiteral(
+            "QStatusBar {"
+            " background: #f6ede2;"
+            " color: #2f2418;"
+            " border-top: 1px solid #d7c2aa;"
+            " }"
+            "QStatusBar QLabel {"
+            " color: #2f2418;"
+            " }"
+            "QStatusBar::item {"
+            " border: none;"
+            " }"));
+    }
+}
+
 void MainWindow::setupInterface()
 {
     ui->setupUi(this);
+    const QString languageCode = effectiveUiLanguageCode();
 
     m_titleLabel = ui->titleLabel;
     m_progressLabel = ui->progressLabel;
@@ -1079,9 +1230,11 @@ void MainWindow::setupInterface()
     m_sequentialCountdownTimer = new QTimer(this);
     m_sequentialCountdownTimer->setInterval(1000);
 
-    m_animationButton = new QPushButton(QStringLiteral("S\u00E9quentiel"), this);
+    m_animationButton = new QPushButton(
+        uiText(languageCode, "Séquentiel", "Sequential", "Sequenziell", "Sequenziale"), this);
 
     auto *topWidget = new QWidget(this);
+    topWidget->setObjectName(QStringLiteral("topChromeWidget"));
     auto *topLayout = new QHBoxLayout(topWidget);
     topLayout->setContentsMargins(8, 4, 8, 4);
     topLayout->setSpacing(8);
@@ -1096,11 +1249,19 @@ void MainWindow::setupInterface()
 
     m_braidSelector = new QComboBox(topWidget);
     m_braidSelector->setMinimumWidth(340);
-    m_braidSelector->setToolTip(QStringLiteral("S\u00E9lection de tresse ABoK"));
+    m_braidSelector->setToolTip(uiText(languageCode,
+                                       "Sélection de tresse ABoK",
+                                       "ABoK braid selection",
+                                       "ABoK-Geflecht auswählen",
+                                       "Selezione treccia ABoK"));
 
     m_animationSpeedCombo = new QComboBox(topWidget);
     m_animationSpeedCombo->setMinimumWidth(92);
-    m_animationSpeedCombo->setToolTip(QStringLiteral("Intervalle du mode s\u00E9quentiel"));
+    m_animationSpeedCombo->setToolTip(uiText(languageCode,
+                                            "Intervalle du mode séquentiel",
+                                            "Sequential mode interval",
+                                            "Intervall des sequenziellen Modus",
+                                            "Intervallo della modalità sequenziale"));
     for (const int optionMs : sequentialIntervalOptionsMs()) {
         m_animationSpeedCombo->addItem(sequentialIntervalLabel(optionMs), optionMs);
     }
@@ -1108,7 +1269,11 @@ void MainWindow::setupInterface()
     m_sequentialCountdownLabel = new QLabel(topWidget);
     m_sequentialCountdownLabel->setMinimumWidth(42);
     m_sequentialCountdownLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    m_sequentialCountdownLabel->setToolTip(QStringLiteral("Compte \u00E0 rebours avant le prochain pas"));
+    m_sequentialCountdownLabel->setToolTip(uiText(languageCode,
+                                                  "Compte à rebours avant le prochain pas",
+                                                  "Countdown before the next step",
+                                                  "Countdown bis zum nächsten Schritt",
+                                                  "Conto alla rovescia prima del prossimo passo"));
     resetSequentialCountdownLabel();
 
     m_compactLineLabel = new QLabel(topWidget);
@@ -1123,60 +1288,92 @@ void MainWindow::setupInterface()
     m_compactLineLabel->setFont(compactFont);
 
     m_loadDrawingButton = new QToolButton(topWidget);
-    m_loadDrawingButton->setText(QStringLiteral("Dessin"));
-    m_loadDrawingButton->setToolTip(QStringLiteral("Charger un dessin de r\u00E9f\u00E9rence"));
+    m_loadDrawingButton->setText(uiText(languageCode, "Dessin", "Drawing", "Zeichnung", "Disegno"));
+    m_loadDrawingButton->setToolTip(uiText(languageCode,
+                                           "Charger un dessin de référence",
+                                           "Load a reference drawing",
+                                           "Referenzzeichnung laden",
+                                           "Carica un disegno di riferimento"));
     m_loadDrawingButton->setMinimumWidth(62);
 
     m_openDocButton = new QToolButton(topWidget);
-    m_openDocButton->setText(QStringLiteral("Doc"));
-    m_openDocButton->setToolTip(QStringLiteral("Ouvrir Solid Sinnet variations.pdf"));
+    m_openDocButton->setText(uiText(languageCode, "Doc", "Doc", "Dok", "Doc"));
+    m_openDocButton->setToolTip(uiText(languageCode,
+                                       "Ouvrir Solid Sinnet variations.pdf",
+                                       "Open Solid Sinnet variations.pdf",
+                                       "Solid Sinnet variations.pdf öffnen",
+                                       "Apri Solid Sinnet variations.pdf"));
     m_openDocButton->setMinimumWidth(44);
 
     m_mainMenuButton = new QToolButton(topWidget);
-    m_mainMenuButton->setText(QStringLiteral("Menu"));
-    m_mainMenuButton->setToolTip(QStringLiteral("Langues / Aide / \u00C0 propos"));
+    m_mainMenuButton->setText(uiText(languageCode, "Menu", "Menu", "Menü", "Menu"));
+    m_mainMenuButton->setToolTip(uiText(languageCode,
+                                        "Langues / Aide / À propos",
+                                        "Languages / Help / About",
+                                        "Sprachen / Hilfe / Info",
+                                        "Lingue / Aiuto / Informazioni"));
     m_mainMenuButton->setPopupMode(QToolButton::InstantPopup);
     m_mainMenuButton->setMinimumWidth(60);
 
     auto *menu = new QMenu(m_mainMenuButton);
-    auto *langMenu = menu->addMenu(QStringLiteral("Langues"));
-    QAction *autoLang = langMenu->addAction(QStringLiteral("Syst\u00E8me (auto)"));
-    QAction *frLang = langMenu->addAction(QStringLiteral("Fran\u00E7ais"));
+    auto *langMenu = menu->addMenu(uiText(languageCode, "Langues", "Languages", "Sprachen", "Lingue"));
+    QAction *autoLang = langMenu->addAction(uiText(languageCode, "Système (auto)", "System (auto)", "System (auto)", "Sistema (auto)"));
+    QAction *frLang = langMenu->addAction(uiText(languageCode, "Français", "French", "Französisch", "Francese"));
     QAction *enLang = langMenu->addAction(QStringLiteral("English"));
     connect(autoLang, &QAction::triggered, this, [this]() { applyUiLanguage(QStringLiteral("auto")); });
     connect(frLang, &QAction::triggered, this, [this]() { applyUiLanguage(QStringLiteral("fr_FR")); });
     connect(enLang, &QAction::triggered, this, [this]() { applyUiLanguage(QStringLiteral("en_US")); });
 
-    QAction *braidEditorAction = menu->addAction(QStringLiteral("\u00C9diteur des tresses..."));
+    QAction *braidEditorAction = menu->addAction(uiText(languageCode,
+                                                        "Éditeur des tresses...",
+                                                        "Braids editor...",
+                                                        "Geflecht-Editor...",
+                                                        "Editor delle trecce..."));
     connect(braidEditorAction, &QAction::triggered, this, &MainWindow::openBraidsEditor);
 
-    QAction *reloadCatalogAction = menu->addAction(QStringLiteral("Recharger les tresses (JSON)"));
-    connect(reloadCatalogAction, &QAction::triggered, this, [this]() {
+    QAction *reloadCatalogAction = menu->addAction(uiText(languageCode,
+                                                          "Recharger les tresses (JSON)",
+                                                          "Reload braids (JSON)",
+                                                          "Geflechte neu laden (JSON)",
+                                                          "Ricarica le trecce (JSON)"));
+    connect(reloadCatalogAction, &QAction::triggered, this, [this, languageCode]() {
         loadBraidsCatalog();
         rebuildBraidSelector();
         reloadCurrentBraid();
         updateView();
         if (statusBar()) {
-            statusBar()->showMessage(QStringLiteral("Catalogue recharge depuis %1").arg(m_braidsJsonPath), 4000);
+            statusBar()->showMessage(uiText(languageCode,
+                                            "Catalogue recharge depuis %1",
+                                            "Catalog reloaded from %1",
+                                            "Katalog neu geladen von %1",
+                                            "Catalogo ricaricato da %1").arg(m_braidsJsonPath), 4000);
         }
     });
 
     menu->addSeparator();
-    auto *helpMenu = menu->addMenu(QStringLiteral("Aide"));
-    QAction *quickHelp = helpMenu->addAction(QStringLiteral("Aide rapide"));
-    QAction *openGuide = helpMenu->addAction(QStringLiteral("Ouvrir le guide Solid Sinnet"));
+    auto *helpMenu = menu->addMenu(uiText(languageCode, "Aide", "Help", "Hilfe", "Aiuto"));
+    QAction *quickHelp = helpMenu->addAction(uiText(languageCode, "Aide rapide", "Quick help", "Schnellhilfe", "Aiuto rapido"));
+    QAction *openGuide = helpMenu->addAction(uiText(languageCode,
+                                                    "Ouvrir le guide Solid Sinnet",
+                                                    "Open the Solid Sinnet guide",
+                                                    "Solid-Sinnet-Leitfaden öffnen",
+                                                    "Apri la guida Solid Sinnet"));
     connect(quickHelp, &QAction::triggered, this, &MainWindow::openQuickHelp);
     connect(openGuide, &QAction::triggered, this, &MainWindow::openReferenceDocument);
 
     menu->addSeparator();
-    QAction *aboutAction = menu->addAction(QStringLiteral("\u00C0 propos"));
+    QAction *aboutAction = menu->addAction(uiText(languageCode, "À propos", "About", "Info", "Informazioni"));
     connect(aboutAction, &QAction::triggered, this, &MainWindow::openAboutDialog);
 
     m_mainMenuButton->setMenu(menu);
 
     m_toggleDetailsButton = new QToolButton(topWidget);
     m_toggleDetailsButton->setText(QStringLiteral("\u2193"));
-    m_toggleDetailsButton->setToolTip(QStringLiteral("Afficher/masquer les d\u00E9tails"));
+    m_toggleDetailsButton->setToolTip(uiText(languageCode,
+                                             "Afficher/masquer les détails",
+                                             "Show or hide details",
+                                             "Details ein- oder ausblenden",
+                                             "Mostra o nascondi i dettagli"));
     m_toggleDetailsButton->setMinimumWidth(30);
 
     leftControlsLayout->addWidget(m_braidSelector, 0);
@@ -1221,8 +1418,12 @@ void MainWindow::setupInterface()
     m_restartButton->setFont(actionFont);
     m_doneButton->setText(QStringLiteral("\u2713"));
     m_restartButton->setText(QStringLiteral("\u2715"));
-    m_doneButton->setToolTip(QStringLiteral("Mouvement suivant"));
-    m_restartButton->setToolTip(QStringLiteral("Recommencer depuis le d\u00E9but"));
+    m_doneButton->setToolTip(uiText(languageCode, "Mouvement suivant", "Next move", "Nächste Bewegung", "Mossa successiva"));
+    m_restartButton->setToolTip(uiText(languageCode,
+                                       "Recommencer depuis le début",
+                                       "Restart from the beginning",
+                                       "Von vorne beginnen",
+                                       "Ricomincia dall'inizio"));
     m_doneButton->setCursor(Qt::PointingHandCursor);
     m_restartButton->setCursor(Qt::PointingHandCursor);
     m_doneButton->setFlat(true);
@@ -1325,6 +1526,7 @@ void MainWindow::setupInterface()
             this, &MainWindow::handleAnimationSpeedChanged);
 
     setDetailsExpanded(false);
+    applyChromeStyle();
 }
 void MainWindow::handleBraidSelectionChanged(int index)
 {
@@ -1338,7 +1540,13 @@ void MainWindow::handleBraidSelectionChanged(int index)
         if (currentIndex >= 0) {
             m_braidSelector->setCurrentIndex(currentIndex);
         }
-        statusBar()->showMessage(QStringLiteral("Impossible de changer de tresse pendant un s\u00E9quentiel."), 3000);
+        const QString languageCode = effectiveUiLanguageCode();
+        statusBar()->showMessage(uiText(languageCode,
+                                        "Impossible de changer de tresse pendant un séquentiel.",
+                                        "Cannot change braid during sequential mode.",
+                                        "Das Geflecht kann im Sequenziell-Modus nicht geändert werden.",
+                                        "Impossibile cambiare treccia durante la modalità sequenziale."),
+                                 3000);
         return;
     }
 
@@ -1351,7 +1559,13 @@ void MainWindow::handleBraidSelectionChanged(int index)
     saveSelectedBraidCode();
     reloadCurrentBraid();
     updateView();
-    statusBar()->showMessage(QStringLiteral("Tresse s\u00E9lectionn\u00E9e : %1").arg(currentBraidTitle()), 3500);
+    const QString languageCode = effectiveUiLanguageCode();
+    statusBar()->showMessage(uiText(languageCode,
+                                    "Tresse sélectionnée : %1",
+                                    "Selected braid: %1",
+                                    "Ausgewähltes Geflecht: %1",
+                                    "Treccia selezionata: %1").arg(currentBraidTitle()),
+                             3500);
 }
 
 
@@ -2016,7 +2230,13 @@ void MainWindow::loadReferenceDrawing()
 
     s.setValue(key, selectedPath);
     s.sync();
-    statusBar()->showMessage(QStringLiteral("Dessin charg\u00E9 : %1").arg(QFileInfo(selectedPath).fileName()), 3500);
+    const QString languageCode = effectiveUiLanguageCode();
+    statusBar()->showMessage(uiText(languageCode,
+                                    "Dessin chargé : %1",
+                                    "Drawing loaded: %1",
+                                    "Zeichnung geladen: %1",
+                                    "Disegno caricato: %1").arg(QFileInfo(selectedPath).fileName()),
+                             3500);
 }
 
 void MainWindow::handleColorModeChanged(int index)
@@ -2059,55 +2279,123 @@ void MainWindow::handleAnimationSpeedChanged(int value)
     applyAnimationDurationMs(durationMs, true);
 
     if (statusBar()) {
-        statusBar()->showMessage(QStringLiteral("Intervalle s\u00E9quentiel : %1.").arg(sequentialIntervalLabel(m_animationDurationMs)), 2000);
+        const QString languageCode = effectiveUiLanguageCode();
+        statusBar()->showMessage(uiText(languageCode,
+                                        "Intervalle séquentiel : %1.",
+                                        "Sequential interval: %1.",
+                                        "Sequenzielles Intervall: %1.",
+                                        "Intervallo sequenziale: %1.")
+                                     .arg(sequentialIntervalLabel(m_animationDurationMs)),
+                                 2000);
     }
 }
 
 void MainWindow::openQuickHelp()
 {
+    const QString languageCode = effectiveUiLanguageCode();
     QMessageBox::information(
         this,
-        QStringLiteral("Aide rapide"),
-        QStringLiteral(
-            "1) Choisir la tresse dans la liste.\n"
-            "2) Regarder le vecteur rouge de pr\u00E9visualisation.\n"
-            "3) Cliquer sur \u2713 pour passer imm\u00E9diatement au pas suivant.\n"
-            "4) Cliquer 'S\u00E9quentiel' pour avancer automatiquement d'un pas \u00E0 intervalle fixe.\n"
-            "5) Le combo r\u00E8gle l'intervalle entre 5 s et 60 s entre deux pas.\n"
-            "6) Le coloriage reste fix\u00E9 sur le mode Parcours avec palette libre.\n"
-            "7) Cliquer un clou occup\u00E9 pour colorer un fil ou un parcours complet.\n"
-            "8) Les couleurs sont sauvegard\u00E9es automatiquement en .lbc (JSON)."));
+        uiText(languageCode, "Aide rapide", "Quick help", "Schnellhilfe", "Aiuto rapido"),
+        uiText(languageCode,
+               "1) Choisir la tresse dans la liste.\n"
+               "2) Regarder le vecteur rouge de prévisualisation.\n"
+               "3) Cliquer sur ✓ pour passer immédiatement au pas suivant.\n"
+               "4) Cliquer 'Séquentiel' pour avancer automatiquement d'un pas à intervalle fixe.\n"
+               "5) Le combo règle l'intervalle entre 5 s et 60 s entre deux pas.\n"
+               "6) Le coloriage reste fixé sur le mode Parcours avec palette libre.\n"
+               "7) Cliquer un clou occupé pour colorer un fil ou un parcours complet.\n"
+               "8) Les couleurs sont sauvegardées automatiquement en .lbc (JSON).",
+               "1) Choose the braid in the list.\n"
+               "2) Watch the red preview vector.\n"
+               "3) Click ✓ to move immediately to the next step.\n"
+               "4) Click 'Sequential' to advance automatically one step at a fixed interval.\n"
+               "5) The combo sets the interval between 5 s and 60 s between two steps.\n"
+               "6) Coloring stays fixed on Path mode with a free palette.\n"
+               "7) Click an occupied peg to color one strand or a complete path.\n"
+               "8) Colors are saved automatically in .lbc (JSON).",
+               "1) Wählen Sie das Geflecht in der Liste.\n"
+               "2) Beobachten Sie den roten Vorschauvektor.\n"
+               "3) Klicken Sie auf ✓, um sofort zum nächsten Schritt zu gehen.\n"
+               "4) Klicken Sie auf 'Sequenziell', um automatisch in festem Intervall weiterzugehen.\n"
+               "5) Die Auswahlliste stellt das Intervall zwischen 5 s und 60 s zwischen zwei Schritten ein.\n"
+               "6) Die Färbung bleibt auf Modus Parcours mit freier Palette fixiert.\n"
+               "7) Klicken Sie auf einen belegten Nagel, um einen Faden oder einen ganzen Verlauf zu färben.\n"
+               "8) Die Farben werden automatisch in .lbc (JSON) gespeichert.",
+               "1) Scegli la treccia nell'elenco.\n"
+               "2) Osserva il vettore rosso di anteprima.\n"
+               "3) Clicca su ✓ per passare subito al passo successivo.\n"
+               "4) Clicca 'Sequenziale' per avanzare automaticamente di un passo a intervallo fisso.\n"
+               "5) Il combo regola l'intervallo tra 5 s e 60 s tra due passi.\n"
+               "6) La colorazione resta fissa in modalità Percorso con tavolozza libera.\n"
+               "7) Clicca un chiodo occupato per colorare un filo o un percorso completo.\n"
+               "8) I colori vengono salvati automaticamente in .lbc (JSON)."));
 }
 
 void MainWindow::openAboutDialog()
 {
+    const QString languageCode = effectiveUiLanguageCode();
     QMessageBox::about(
         this,
-        QStringLiteral("\u00C0 propos de LogiBraiding"),
-        QStringLiteral("LogiBraiding\n"
-                       "Assistant visuel de tressage ABoK\n\n"
-                       "Version d'essai: 15 jours\n"
-                       "Inscription: AuthorID (Ctrl+I)\n\n"
-                       "Suite logicielle: LogiKnotting + LogiBraiding"));
+        uiText(languageCode,
+               "À propos de LogiBraiding",
+               "About LogiBraiding",
+               "Über LogiBraiding",
+               "Informazioni su LogiBraiding"),
+        uiText(languageCode,
+               "LogiBraiding\n"
+               "Assistant visuel de tressage ABoK\n\n"
+               "Version d'essai: 15 jours\n"
+               "Inscription: AuthorID (Ctrl+I)\n\n"
+               "Suite logicielle: LogiKnotting + LogiBraiding",
+               "LogiBraiding\n"
+               "ABoK visual braiding assistant\n\n"
+               "Trial version: 15 days\n"
+               "Registration: AuthorID (Ctrl+I)\n\n"
+               "Software suite: LogiKnotting + LogiBraiding",
+               "LogiBraiding\n"
+               "Visueller ABoK-Flechtassistent\n\n"
+               "Testversion: 15 Tage\n"
+               "Registrierung: AuthorID (Ctrl+I)\n\n"
+               "Software-Suite: LogiKnotting + LogiBraiding",
+               "LogiBraiding\n"
+               "Assistente visivo di intreccio ABoK\n\n"
+               "Versione di prova: 15 giorni\n"
+               "Registrazione: AuthorID (Ctrl+I)\n\n"
+               "Suite software: LogiKnotting + LogiBraiding"));
 }
 
 void MainWindow::applyUiLanguage(const QString &languageCode)
 {
-    const QString normalized = languageCode.trimmed().isEmpty() ? QStringLiteral("auto") : languageCode.trimmed();
+    const QString normalized = canonicalUiLanguageCode(languageCode);
+    const QString effectiveLanguageCode =
+        (normalized == QStringLiteral("auto")) ? effectiveUiLanguageCode() : normalized;
 
     QSettings s = appSettings();
     s.setValue(uiLanguageSettingKey(), normalized);
     s.sync();
 
+    QSettings shell = shellSettings();
+    shell.setValue(uiLanguageSettingKey(), normalized);
+    shell.sync();
+
     const QMessageBox::StandardButton answer = QMessageBox::question(
         this,
-        QStringLiteral("Langue"),
-        QStringLiteral("La langue sera appliqu\u00E9e au prochain d\u00E9marrage.\nRed\u00E9marrer maintenant ?"),
+        uiText(effectiveLanguageCode, "Langue", "Language", "Sprache", "Lingua"),
+        uiText(effectiveLanguageCode,
+               "La langue sera appliquée au prochain démarrage.\nRedémarrer maintenant ?",
+               "The language will be applied at the next startup.\nRestart now?",
+               "Die Sprache wird beim nächsten Start angewendet.\nJetzt neu starten?",
+               "La lingua sarà applicata al prossimo avvio.\nRiavvia ora?"),
         QMessageBox::Yes | QMessageBox::No,
         QMessageBox::Yes);
 
     if (answer != QMessageBox::Yes) {
-        statusBar()->showMessage(QStringLiteral("Langue enregistr\u00E9e : red\u00E9marrage requis."), 3500);
+        statusBar()->showMessage(uiText(effectiveLanguageCode,
+                                        "Langue enregistrée : redémarrage requis.",
+                                        "Language saved: restart required.",
+                                        "Sprache gespeichert: Neustart erforderlich.",
+                                        "Lingua salvata: riavvio richiesto."),
+                                 3500);
         return;
     }
 
@@ -2117,8 +2405,12 @@ void MainWindow::applyUiLanguage(const QString &languageCode)
 
     if (!launched) {
         QMessageBox::warning(this,
-                             QStringLiteral("Langue"),
-                             QStringLiteral("Impossible de relancer automatiquement l'application."));
+                             uiText(effectiveLanguageCode, "Langue", "Language", "Sprache", "Lingua"),
+                             uiText(effectiveLanguageCode,
+                                    "Impossible de relancer automatiquement l'application.",
+                                    "Unable to restart the application automatically.",
+                                    "Die Anwendung konnte nicht automatisch neu gestartet werden.",
+                                    "Impossibile riavviare automaticamente l'applicazione."));
         return;
     }
 
@@ -2127,6 +2419,7 @@ void MainWindow::applyUiLanguage(const QString &languageCode)
 
 void MainWindow::openReferenceDocument()
 {
+    const QString languageCode = effectiveUiLanguageCode();
     const QString fileName = QStringLiteral("Solid Sinnet variations.pdf");
 
     const QStringList candidates = {
@@ -2147,16 +2440,31 @@ void MainWindow::openReferenceDocument()
     }
 
     if (docPath.isEmpty()) {
-        statusBar()->showMessage(QStringLiteral("Document introuvable: %1").arg(fileName), 5000);
+        statusBar()->showMessage(uiText(languageCode,
+                                        "Document introuvable: %1",
+                                        "Document not found: %1",
+                                        "Dokument nicht gefunden: %1",
+                                        "Documento non trovato: %1").arg(fileName),
+                                 5000);
         return;
     }
 
     if (!QDesktopServices::openUrl(QUrl::fromLocalFile(docPath))) {
-        statusBar()->showMessage(QStringLiteral("Impossible d'ouvrir le document de r\u00E9f\u00E9rence."), 5000);
+        statusBar()->showMessage(uiText(languageCode,
+                                        "Impossible d'ouvrir le document de référence.",
+                                        "Unable to open the reference document.",
+                                        "Das Referenzdokument konnte nicht geöffnet werden.",
+                                        "Impossibile aprire il documento di riferimento."),
+                                 5000);
         return;
     }
 
-    statusBar()->showMessage(QStringLiteral("Document ouvert: %1").arg(QFileInfo(docPath).fileName()), 3500);
+    statusBar()->showMessage(uiText(languageCode,
+                                    "Document ouvert: %1",
+                                    "Document opened: %1",
+                                    "Dokument geöffnet: %1",
+                                    "Documento aperto: %1").arg(QFileInfo(docPath).fileName()),
+                             3500);
 }
 void MainWindow::setDetailsExpanded(bool expanded)
 {
@@ -2173,18 +2481,19 @@ void MainWindow::setDetailsExpanded(bool expanded)
 
 void MainWindow::configureMovesTable()
 {
+    const QString languageCode = effectiveUiLanguageCode();
     m_movesTable->setColumnCount(6);
     m_movesTable->setHorizontalHeaderLabels({
-        QStringLiteral("\u00C9tape"),
-        QStringLiteral("Case"),
-        QStringLiteral("Brins"),
-        QStringLiteral("D\u00E9part"),
-        QStringLiteral("Arriv\u00E9e"),
-        QStringLiteral("Rotation")
+        uiText(languageCode, "Étape", "Step", "Schritt", "Passo"),
+        uiText(languageCode, "Case", "Cell", "Feld", "Casella"),
+        uiText(languageCode, "Brins", "Strands", "Stränge", "Fili"),
+        uiText(languageCode, "Départ", "From", "Start", "Partenza"),
+        uiText(languageCode, "Arrivée", "To", "Ziel", "Arrivo"),
+        uiText(languageCode, "Rotation", "Rotation", "Rotation", "Rotazione")
     });
 
     m_movesTable->setRowCount(1);
-    m_movesTable->setVerticalHeaderLabels({QStringLiteral("Active")});
+    m_movesTable->setVerticalHeaderLabels({uiText(languageCode, "Active", "Active", "Aktiv", "Attiva")});
     m_movesTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_movesTable->setSelectionMode(QAbstractItemView::NoSelection);
     m_movesTable->setFocusPolicy(Qt::NoFocus);
@@ -2461,6 +2770,7 @@ void MainWindow::prepareNextSequence()
 
 void MainWindow::setSequentialModeActive(bool active)
 {
+    const QString languageCode = effectiveUiLanguageCode();
     m_sequentialModeActive = active;
     const bool hasMoves = !currentMoveSet().isEmpty();
 
@@ -2478,7 +2788,11 @@ void MainWindow::setSequentialModeActive(bool active)
     m_doneButton->setEnabled(!active && hasMoves);
     if (m_animationButton) {
         m_animationButton->setEnabled(!active && hasMoves);
-        m_animationButton->setText(QStringLiteral("S\u00E9quentiel"));
+        m_animationButton->setText(uiText(languageCode,
+                                          "Séquentiel",
+                                          "Sequential",
+                                          "Sequenziell",
+                                          "Sequenziale"));
     }
     m_restartButton->setEnabled(true);
     if (m_braidSelector) {
@@ -2534,6 +2848,7 @@ void MainWindow::resetSequentialCountdownLabel()
 
 void MainWindow::advanceSequentialStep()
 {
+    const QString languageCode = effectiveUiLanguageCode();
     if (!m_sequentialModeActive) {
         return;
     }
@@ -2541,7 +2856,12 @@ void MainWindow::advanceSequentialStep()
     if (isCompletionHoldState()) {
         prepareNextSequence();
         setSequentialModeActive(false);
-        statusBar()->showMessage(QStringLiteral("S\u00E9quentiel termin\u00E9. \u00C9tape 1 pr\u00EAte pour la s\u00E9quence suivante."), 4500);
+        statusBar()->showMessage(uiText(languageCode,
+                                        "Séquentiel terminé. Étape 1 prête pour la séquence suivante.",
+                                        "Sequential mode finished. Step 1 is ready for the next sequence.",
+                                        "Sequenziell beendet. Schritt 1 ist für die nächste Sequenz bereit.",
+                                        "Modalità sequenziale terminata. Il passo 1 è pronto per la sequenza successiva."),
+                                 4500);
         return;
     }
 
@@ -2559,10 +2879,13 @@ void MainWindow::advanceSequentialStep()
             m_sequentialTimer->start(m_animationDurationMs);
         }
         startSequentialCountdown(m_animationDurationMs);
-        statusBar()->showMessage(
-            QStringLiteral("Fin du tour affich\u00E9e. Retour \u00E0 l'\u00E9tape 1 dans %1.")
-                .arg(sequentialIntervalLabel(m_animationDurationMs)),
-            3000);
+        statusBar()->showMessage(uiText(languageCode,
+                                        "Fin du tour affichée. Retour à l'étape 1 dans %1.",
+                                        "End of round displayed. Returning to step 1 in %1.",
+                                        "Rundenende angezeigt. Rückkehr zu Schritt 1 in %1.",
+                                        "Fine del giro visualizzata. Ritorno al passo 1 tra %1.")
+                                     .arg(sequentialIntervalLabel(m_animationDurationMs)),
+                                 3000);
         return;
     }
 
@@ -2570,11 +2893,18 @@ void MainWindow::advanceSequentialStep()
         m_sequentialTimer->start(m_animationDurationMs);
     }
     startSequentialCountdown(m_animationDurationMs);
-    statusBar()->showMessage(QStringLiteral("S\u00E9quentiel : prochain pas dans %1.").arg(sequentialIntervalLabel(m_animationDurationMs)), 2000);
+    statusBar()->showMessage(uiText(languageCode,
+                                    "Séquentiel : prochain pas dans %1.",
+                                    "Sequential mode: next step in %1.",
+                                    "Sequenziell: nächster Schritt in %1.",
+                                    "Sequenziale: prossimo passo tra %1.")
+                                 .arg(sequentialIntervalLabel(m_animationDurationMs)),
+                             2000);
 }
 
 void MainWindow::updateView()
 {
+    const QString languageCode = effectiveUiLanguageCode();
     const auto &moves = currentMoveSet();
     const int totalMoves = static_cast<int>(moves.size());
 
@@ -2618,23 +2948,44 @@ void MainWindow::updateView()
 
     if (m_currentMoveIndex >= totalMoves) {
         updateCompactLine(nullptr, totalMoves);
-        m_progressLabel->setText(QStringLiteral("\u00E9tape %1/%1").arg(totalMoves));
-        m_moveLabel->setText(QStringLiteral("tour termin\u00E9"));
-        m_detailLabel->setText(QStringLiteral("cliquer sur \u2713 pour pr\u00E9parer l'\u00E9tape 1 suivante"));
+        m_progressLabel->setText(uiText(languageCode, "étape %1/%1", "step %1/%1", "Schritt %1/%1", "passo %1/%1")
+                                     .arg(totalMoves));
+        m_moveLabel->setText(uiText(languageCode, "tour terminé", "round completed", "Runde beendet", "giro completato"));
+        m_detailLabel->setText(uiText(languageCode,
+                                      "cliquer sur ✓ pour préparer l'étape 1 suivante",
+                                      "click ✓ to prepare the next step 1",
+                                      "auf ✓ klicken, um den nächsten Schritt 1 vorzubereiten",
+                                      "clicca su ✓ per preparare il prossimo passo 1"));
 
         m_boardWidget->setPendingMove(-1, -1);
         m_doneButton->setEnabled(!m_sequentialModeActive);
-        m_doneButton->setToolTip(QStringLiteral("Afficher l'\u00E9tape 1 suivante"));
+        m_doneButton->setToolTip(uiText(languageCode,
+                                        "Afficher l'étape 1 suivante",
+                                        "Show the next step 1",
+                                        "Nächsten Schritt 1 anzeigen",
+                                        "Mostra il prossimo passo 1"));
         if (m_animationButton) {
             m_animationButton->setEnabled(!m_sequentialModeActive);
-            m_animationButton->setToolTip(QStringLiteral("Pr\u00E9parer l'\u00E9tape 1 puis lancer le s\u00E9quentiel"));
+            m_animationButton->setToolTip(uiText(languageCode,
+                                                 "Préparer l'étape 1 puis lancer le séquentiel",
+                                                 "Prepare step 1 then start sequential mode",
+                                                 "Schritt 1 vorbereiten und dann den Sequenziell-Modus starten",
+                                                 "Prepara il passo 1 e poi avvia la modalità sequenziale"));
         }
-        m_restartButton->setToolTip(QStringLiteral("Recommencer depuis l'\u00E9tape 1"));
+        m_restartButton->setToolTip(uiText(languageCode,
+                                           "Recommencer depuis l'étape 1",
+                                           "Restart from step 1",
+                                           "Ab Schritt 1 neu beginnen",
+                                           "Ricomincia dal passo 1"));
 
         populateActiveRow(moves.back(), QColor(226, 248, 229));
 
         if (!m_sequentialModeActive) {
-            statusBar()->showMessage(QStringLiteral("Tour termin\u00E9. Le trac\u00E9 final reste visible jusqu'au prochain \u2713."));
+            statusBar()->showMessage(uiText(languageCode,
+                                            "Tour terminé. Le tracé final reste visible jusqu'au prochain ✓.",
+                                            "Round completed. The final trace remains visible until the next ✓.",
+                                            "Runde beendet. Die finale Spur bleibt bis zum nächsten ✓ sichtbar.",
+                                            "Giro completato. Il tracciato finale resta visibile fino al prossimo ✓."));
         }
         return;
     }
@@ -2643,32 +2994,56 @@ void MainWindow::updateView()
     updateCompactLine(&move, totalMoves);
     m_boardWidget->setPendingMove(move.fromPeg, move.toPeg);
 
-    m_progressLabel->setText(QStringLiteral("\u00E9tape %1/%2").arg(move.step).arg(totalMoves));
+    m_progressLabel->setText(uiText(languageCode, "étape %1/%2", "step %1/%2", "Schritt %1/%2", "passo %1/%2")
+                                 .arg(move.step)
+                                 .arg(totalMoves));
 
     m_moveLabel->setText(
-        QStringLiteral("prendre le fil int\u00E9rieur de la case %1\nl'amener \u00E0 l'ext\u00E9rieur de la case %2 %3")
+        uiText(languageCode,
+               "prendre le fil intérieur de la case %1\nl'amener à l'extérieur de la case %2 %3",
+               "take the inner strand from cell %1\nbring it to the outside of cell %2 %3",
+               "den inneren Faden aus Feld %1 nehmen\nnach außen zu Feld %2 führen %3",
+               "prendere il filo interno della casella %1\nportarlo all'esterno della casella %2 %3")
             .arg(move.fromPeg)
             .arg(move.toPeg)
             .arg(rotationHintSymbol(move.rotationCode)));
 
-    m_detailLabel->setText(QStringLiteral("puis recentrer les fils restants de la case %1").arg(move.fromPeg));
+    m_detailLabel->setText(uiText(languageCode,
+                                  "puis recentrer les fils restants de la case %1",
+                                  "then recenter the remaining strands of cell %1",
+                                  "dann die verbleibenden Fäden von Feld %1 neu zentrieren",
+                                  "poi ricentrare i fili restanti della casella %1")
+                              .arg(move.fromPeg));
 
     m_doneButton->setEnabled(!m_sequentialModeActive);
     if (m_animationButton) {
         m_animationButton->setEnabled(!m_sequentialModeActive);
     }
-    m_doneButton->setToolTip(QStringLiteral("Mouvement suivant : \u00E9tape %1").arg(move.step));
-    m_restartButton->setToolTip(QStringLiteral("Recommencer depuis l'\u00E9tape 1"));
+    m_doneButton->setToolTip(uiText(languageCode,
+                                    "Mouvement suivant : étape %1",
+                                    "Next move: step %1",
+                                    "Nächste Bewegung: Schritt %1",
+                                    "Mossa successiva: passo %1").arg(move.step));
+    m_restartButton->setToolTip(uiText(languageCode,
+                                       "Recommencer depuis l'étape 1",
+                                       "Restart from step 1",
+                                       "Ab Schritt 1 neu beginnen",
+                                       "Ricomincia dal passo 1"));
 
     populateActiveRow(move, QColor(224, 238, 255));
 
     if (!m_sequentialModeActive) {
-        statusBar()->showMessage(QStringLiteral("Mode didactique : effectuer le mouvement suivant ou lancer le s\u00E9quentiel."));
+        statusBar()->showMessage(uiText(languageCode,
+                                        "Mode didactique : effectuer le mouvement suivant ou lancer le séquentiel.",
+                                        "Didactic mode: perform the next move or start sequential mode.",
+                                        "Didaktischer Modus: nächste Bewegung ausführen oder Sequenziell starten.",
+                                        "Modalità didattica: esegui la mossa successiva o avvia la modalità sequenziale."));
     }
 }
 
 void MainWindow::startCurrentMoveAnimation(bool fullPassage)
 {
+    const QString languageCode = effectiveUiLanguageCode();
     if (!m_boardWidget || m_sequentialModeActive) {
         return;
     }
@@ -2676,7 +3051,12 @@ void MainWindow::startCurrentMoveAnimation(bool fullPassage)
     if (isCompletionHoldState()) {
         prepareNextSequence();
         if (!fullPassage) {
-            statusBar()->showMessage(QStringLiteral("\u00C9tape 1 pr\u00EAte pour la s\u00E9quence suivante."), 3000);
+            statusBar()->showMessage(uiText(languageCode,
+                                            "Étape 1 prête pour la séquence suivante.",
+                                            "Step 1 ready for the next sequence.",
+                                            "Schritt 1 ist für die nächste Sequenz bereit.",
+                                            "Passo 1 pronto per la sequenza successiva."),
+                                     3000);
             return;
         }
     }
@@ -2691,14 +3071,25 @@ void MainWindow::startCurrentMoveAnimation(bool fullPassage)
             m_sequentialTimer->start(m_animationDurationMs);
         }
         startSequentialCountdown(m_animationDurationMs);
-        statusBar()->showMessage(QStringLiteral("S\u00E9quentiel lanc\u00E9 : prochain pas dans %1.").arg(sequentialIntervalLabel(m_animationDurationMs)), 2500);
+        statusBar()->showMessage(uiText(languageCode,
+                                        "Séquentiel lancé : prochain pas dans %1.",
+                                        "Sequential mode started: next step in %1.",
+                                        "Sequenziell gestartet: nächster Schritt in %1.",
+                                        "Modalità sequenziale avviata: prossimo passo tra %1.")
+                                     .arg(sequentialIntervalLabel(m_animationDurationMs)),
+                                 2500);
     } else {
         QString errorMessage;
         const bool wasLastMove = (m_currentMoveIndex == static_cast<int>(currentMoveSet().size()) - 1);
         if (!performCurrentMove(&errorMessage)) {
             statusBar()->showMessage(errorMessage, 5000);
         } else if (wasLastMove) {
-            statusBar()->showMessage(QStringLiteral("Tour termin\u00E9. Le trac\u00E9 final reste visible ; \u2713 pr\u00E9parera l'\u00E9tape 1 suivante."), 4500);
+            statusBar()->showMessage(uiText(languageCode,
+                                            "Tour terminé. Le tracé final reste visible ; ✓ préparera l'étape 1 suivante.",
+                                            "Round completed. The final trace remains visible; ✓ will prepare the next step 1.",
+                                            "Runde beendet. Die finale Spur bleibt sichtbar; ✓ bereitet den nächsten Schritt 1 vor.",
+                                            "Giro completato. Il tracciato finale resta visibile; ✓ preparerà il prossimo passo 1."),
+                                     4500);
         }
     }
 }

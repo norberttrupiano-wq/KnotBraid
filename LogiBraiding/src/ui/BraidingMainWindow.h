@@ -100,6 +100,7 @@ private:
     int m_animationDurationMs = 5000;
 
     void setupInterface();
+    void applyChromeStyle();
     void configureMovesTable();
     void updateView();
     void startCurrentMoveAnimation(bool fullPassage);

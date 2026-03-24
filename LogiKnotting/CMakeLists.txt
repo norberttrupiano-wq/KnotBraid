@@ -15,7 +15,11 @@ if(WIN32)
     )
 endif()
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets PrintSupport)
+file(GLOB LOGIKNOTTING_TRANSLATION_QM_FILES
+    "${CMAKE_CURRENT_SOURCE_DIR}/translations/*.qm"
+)
+
+find_package(Qt6 REQUIRED COMPONENTS Widgets PrintSupport Multimedia MultimediaWidgets)
 
 set(LOGIKNOTTING_APP_SOURCES
     src/app/KnottingApplication.h
@@ -51,7 +55,7 @@ add_library(LogiKnottingAppLib STATIC
     ${LOGIKNOTTING_APP_SOURCES}
 )
 
-target_link_libraries(LogiKnottingAppLib PRIVATE Qt6::Widgets Qt6::PrintSupport)
+target_link_libraries(LogiKnottingAppLib PRIVATE Qt6::Widgets Qt6::PrintSupport Qt6::Multimedia Qt6::MultimediaWidgets)
 target_include_directories(LogiKnottingAppLib PUBLIC src)
 
 add_executable(LogiKnotting
@@ -60,8 +64,19 @@ add_executable(LogiKnotting
     ${LOGIKNOTTING_WINDOWS_RESOURCES}
 )
 
-target_link_libraries(LogiKnotting PRIVATE LogiKnottingAppLib Qt6::Widgets Qt6::PrintSupport)
+target_link_libraries(LogiKnotting PRIVATE LogiKnottingAppLib Qt6::Widgets Qt6::PrintSupport Qt6::Multimedia Qt6::MultimediaWidgets)
 target_include_directories(LogiKnotting PRIVATE src)
+
+if(LOGIKNOTTING_TRANSLATION_QM_FILES)
+    add_custom_command(TARGET LogiKnotting POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:LogiKnotting>/translations"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${LOGIKNOTTING_TRANSLATION_QM_FILES}
+            "$<TARGET_FILE_DIR:LogiKnotting>/translations"
+        COMMENT "Copying LogiKnotting translations"
+        VERBATIM
+    )
+endif()
 
 
 

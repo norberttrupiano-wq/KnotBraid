@@ -1,0 +1,220 @@
+KnotBraid - User Manual
+Version 1.0 - March 19, 2026
+
+Contents
+1. General overview
+2. KnotBraid: launching the suite
+3. LogiBraiding: performing a braid
+4. LogiKnotting: designing and correcting a knot
+Important concepts
+Tracing mode
+Sketch mode
+Crossings mode
+Files
+Printing
+5. LogiKnotting command reference
+
+1. General overview
+KnotBraid is a suite dedicated to preparing, correcting, and executing knots and braids.
+It combines three complementary tools: KnotBraid, LogiBraiding, and LogiKnotting.
+
+Home page, general overview of the suite.
+
+Tip
+To build a clean ABoK library, work first in an .lkw file, correct the crossings, check the print preview, then validate to an .lkv file only when the model is final.
+
+File types
+file.lkw: working file, editable.
+file.lkv: validated file, locked read-only.
+JSON: LogiBraiding braid catalog.
+
+Warning
+An .lkv file is no longer editable. To continue working from a validated model, first use the Copy command.
+
+2. KnotBraid: launching the suite
+KnotBraid is the central launcher. It gives access to the suite while keeping as much shell space as possible.
+The floating palette contains Home, Knotting, Braiding, and Help. It can be moved with the mouse and its position is stored separately for each application.
+
+Tip
+Place the floating palette where it does not overlap the shell or the main visual work area.
+
+KnotBraid screen with the floating palette visible above the shell.
+
+3. LogiBraiding: performing a braid
+LogiBraiding guides braid execution step by step and keeps the screen intentionally simple.
+The top bar contains the braid selector, the Sequential button, the interval selector, the countdown, the AuthorID / Trial status, Drawing, Doc, Menu, and the details button.
+The instruction panel displays the current action. The visible buttons are the check mark for the next move and the cross for restart.
+
+Tip
+The instruction panel text should be sufficient on its own, while the braiding table confirms the action visually.
+
+Sequential mode
+Sequential mode automatically reproduces a click on the next-move button after the selected delay. It does not slow down the line drawing; it only controls the rhythm of the displayed steps.
+Available intervals are 5 s, 10 s, 15 s, 20 s, 30 s, 40 s, 50 s, and 60 s.
+The countdown displays the seconds remaining before the next step.
+At the end of a cycle, the last move is executed, step 1 of the next sequence is displayed, and Sequential mode stops automatically.
+
+Warning
+Sequential mode is not a graphical demo mode. It simply gives the braider enough time to perform the real move before the next step appears.
+
+Additional tools
+Drawing loads a reference drawing.
+Doc opens the document Solid Sinnet variations.pdf.
+Menu gives access to languages, the braid editor, catalog reload, quick help, and the About dialog.
+
+Main LogiBraiding view with the instruction panel, the buttons, the central table, and the top bar.
+
+4. LogiKnotting: designing and correcting a knot
+LogiKnotting is the design workshop of the suite. It is used to prepare knot geometry, adjust the ribbon, correct crossings, and prepare printing.
+
+The three modes
+Tracing: actual rope drawing, rope by rope.
+Sketch: temporary construction or transformation.
+Crossings: explicit correction of crossings.
+
+Important concepts
+Ribbon: the knot is built on a millimeter grid ribbon with adjustable length (430 mm by default in many current projects).
+Ropes: up to five ropes can be used. The active rope receives new points. Rope selection is done with Ctrl+1 to Ctrl+5.
+Crossings: Crossings mode, activated with Ctrl+C, is used to correct over/under direction. Inversions are saved and restored when the file is reloaded.
+Validation: a validated .lkv file becomes non-editable. To resume from an editable version, first use Copy.
+
+Warning
+Validation is not just a save. It represents a final state intended for consultation, archiving, or stable printing.
+
+Recommended workflow
+1. Create or open an .lkw file.
+2. Choose the active rope.
+3. Draw the main structure.
+4. Switch to Sketch mode if a geometric correction is needed.
+5. Return to Tracing mode.
+6. Switch to Crossings mode to correct the crossings.
+7. Save.
+8. Validate the knot when the geometry is fully finalized.
+
+Tracing mode
+Tracing mode is the actual drawing mode of the knot. Each click places a new point on the active rope. The model allows only certain directions (0, 45, 90, 135 degrees), and a green preview shows whether the proposed segment is coherent.
+For ribbon rotation, see the command reference section.
+
+Snap steps are:
+- 1 mm with no modifier
+- 5 mm with Shift
+- 10 mm with Ctrl
+
+Tip
+For early construction passes, stay with the fine step. Larger steps are useful later for rapid moves or more regular structures.
+
+Sketch mode
+Sketch mode is used to build or transform temporary geometry before returning to actual tracing.
+The first click places an anchor.
+Subsequent clicks add sketch segments from this anchor.
+Space interrupts the current sketch.
+Shift + mouse drag creates a selection.
+Shift + mouse drag on an existing selection moves it.
+Ctrl + Shift + mouse drag duplicates the selection and moves it.
+
+The commands Rotate right 90 degrees, Rotate left 90 degrees, Flip vertically, and Flip horizontally apply to the active selection.
+
+Warning
+Sketch mode does not replace the final traced rope. It is used to prepare, correct, or move segments before integrating them into the knot logic. Crossings are not defined in sketch mode.
+
+Crossings mode
+Crossings mode is used to correct over/under direction and to copy the crossing order from one segment to another. Crossings modified during the session are marked visually. Inversions are saved and restored when the file is reloaded.
+Esc leaves this mode. Right-click on a hovered crossing inverts it.
+In this mode, left-click on a segment selects it as the source segment. Then left-click on another compatible segment copies the crossing order onto that segment. If the selected source segment is clicked again, the selection is cancelled.
+When the mouse hovers a crossing, the tooltip shows Left Crossing or Right Crossing and reminds the user that right-click inverts it.
+
+Tip
+Correcting a crossing as soon as a doubt appears avoids inconsistencies later, during preparation or at print time.
+
+Files
+Ctrl+O opens a file.lkw or file.lkv file.
+Ctrl+S saves the current work as file.lkw.
+
+Validation
+Validation creates a locked .lkv file. It is no longer editable. To continue from an editable version, first use Copy.
+Copy creates an editable version from an .lkv file. The copy follows the validated geometry but is converted into a sketch so the user can trace over it again.
+
+Warning
+Validation is not a simple save. It represents a final state intended for consultation, archiving, or stable printing.
+
+Recommended workflow
+1. Create or open an .lkw file.
+2. Choose the active rope. By default you work on rope 1.
+3. Build or prepare the main structure in Sketch mode with Ctrl+E. If a geometric correction is needed, you can select and delete.
+4. Switch to Tracing mode with Ctrl+B.
+5. Switch to Crossings mode with Ctrl+C to correct or copy crossings.
+6. Save.
+7. Validate the knot when the geometry is fully finalized.
+
+Printing
+The printing system is designed to reduce the number of pages. Printing uses the useful ribbon width, landscape orientation, and automatic reduction if needed.
+The print profile lets you choose A4 or A3 paper, overlap, and printing with or without the grid.
+
+Warning
+Always check print preview before final output, especially for long ribbons or assemblies meant to be joined across several pages.
+
+Main LogiKnotting view with the blue ruler, the ribbon, the active rope, and a knot being edited.
+
+Crossings mode active with a modified crossing.
+
+Print preview with a small number of landscape pages and trimming marks.
+
+5. LogiKnotting command reference
+
+File and printing
+Ctrl+O: open an .lkw or .lkv file
+Ctrl+S: save the working file
+Ctrl+P: print
+File menu > Validate: lock as .lkv
+File menu > Copy: create an editable copy
+
+View and navigation
+Ctrl++: zoom in
+Ctrl+-: zoom out
+Ctrl+0: zoom 100%
+Home: return the junction to the ribbon origin
+
+Modes
+Ctrl+E: Sketch mode
+Ctrl+B: Tracing mode
+Ctrl+C: enter or leave Crossings mode
+Esc: leave Crossings mode
+
+Ribbon rotation
+Left or Right arrow: 1 mm step
+Shift + Left or Right arrow: 5 mm step
+Ctrl + Left or Right arrow: 10 mm step
+Alt + Left or Right arrow: shorten or lengthen the ribbon by 1 mm
+Alt + Ctrl + Left or Right arrow: 5 mm step
+Alt + Ctrl + Shift + Left or Right arrow: 10 mm step
+
+Ropes
+Ctrl+1 to Ctrl+5: choose the active rope
+
+Sketch mode
+Ctrl+E activates Sketch mode.
+The first left click places an anchor (green sketch point).
+Subsequent clicks add sketch segments from that anchor.
+Space interrupts the current sketch to start elsewhere.
+Selection: hold Shift and drag a rectangle around the sketch you want to select.
+Keep Shift pressed during the operation.
+Delete or Backspace removes the active selection.
+Ctrl+Shift+C copies the selection.
+Ctrl+V pastes the selection at the current position.
+Ctrl+Z and Ctrl+Y then act on the sketch, not on the traced rope.
+In Sketch mode you can move a sketch:
+grab the selection and move it by dragging the mouse.
+Releasing Shift in Sketch mode ends the move and clears the selection.
+
+Crossings management
+During design, the rope systematically passes over the crossed rope.
+Crossings must therefore be corrected once tracing is complete.
+Press Ctrl+C to enter Crossings mode.
+Crossings then appear surrounded by a circle.
+In Crossings mode, right-click on a hovered crossing inverts it. It is then marked in translucent red. This marking is not permanent and disappears after reloading a future session; it only indicates that this crossing was modified during the current session.
+When hovering a segment, left-click selects the source segment and copies its crossing order. You can then hover another compatible segment and left-click again to copy the same crossing order in the same sequence.
+
+Notes
+Undo (Ctrl+Z) and Redo (Ctrl+Y) only affect commands from the current mode. Actions in Tracing mode and Sketch mode are handled separately.
+In a validated .lkv file, editing commands are disabled.
+

@@ -41,10 +41,16 @@
 
 class QAction;
 class QActionGroup;
+class QCheckBox;
+class QDialog;
 class QLabel;
+class QMediaPlayer;
 class QPainter;
 class QPrinter;
+class QPushButton;
+class QTextBrowser;
 class QTranslator;
+class QVideoWidget;
 class WorkspaceView;
 
 namespace Model {
@@ -71,6 +77,7 @@ private:
     void buildMenusAndShortcuts();
     void buildStatusBar();
     void buildLanguageMenu();
+    void buildTutorialPanel();
     void openLanguageDialog();
     bool openRegistrationDialog(bool trialExpired);
     bool ensureTrialAccess();
@@ -83,6 +90,19 @@ private:
     void refreshStatusBar();
     void refreshActiveRopeUi();
     void refreshUiTexts();
+    void refreshInteractionModeUi(bool announceStatus = false);
+    void applyChromeStyle();
+    void updateTutorialUi();
+    void replayTutorialStep();
+    void startTutorial(bool resetToBlankDocument);
+    void advanceTutorial(int delta);
+    void finishTutorial();
+    void closeTutorial();
+    void startStartupTutorialIfNeeded(bool restoredLastWorkspace);
+    bool createBlankDocument(bool confirmUser);
+    bool tutorialFirstRunCompleted() const;
+    bool tutorialReplayOnStartup() const;
+    void saveTutorialSettings(bool completed, bool replayOnStartup) const;
 
     void applyLanguage(const QString& languageCode);
     QString findTranslationFile(const QString& languageCode) const;
@@ -136,13 +156,18 @@ private:
     QAction* m_actionPrint = nullptr;
     QAction* m_actionSketchMode = nullptr;
     QAction* m_actionBreakSketch = nullptr;
+    QAction* m_actionClearSketches = nullptr;
     QAction* m_actionTracingMode = nullptr;
-    QAction* m_actionRotateRight45 = nullptr;
-    QAction* m_actionInvertDirection = nullptr;
+    QAction* m_actionCrossingMode = nullptr;
+    QAction* m_actionRotateRight90 = nullptr;
+    QAction* m_actionRotateLeft90 = nullptr;
+    QAction* m_actionFlipVertical = nullptr;
+    QAction* m_actionFlipHorizontal = nullptr;
     QAction* m_actionZoomIn = nullptr;
     QAction* m_actionZoomOut = nullptr;
     QAction* m_actionZoomReset = nullptr;
     QAction* m_actionPlayAnimation = nullptr;
+    QAction* m_actionTutorial = nullptr;
     QActionGroup* m_ropeActionGroup = nullptr;
     std::vector<QAction*> m_ropeActions;
 
@@ -164,6 +189,21 @@ private:
     QLabel* m_labelSnap = nullptr;
     QLabel* m_labelRibbon = nullptr;
     QLabel* m_labelTime = nullptr;
+    QDialog* m_tutorialDock = nullptr;
+    QLabel* m_tutorialStepLabel = nullptr;
+    QLabel* m_tutorialTitleLabel = nullptr;
+    QTextBrowser* m_tutorialBody = nullptr;
+    QLabel* m_tutorialVideoLabel = nullptr;
+    QVideoWidget* m_tutorialVideoWidget = nullptr;
+    QLabel* m_tutorialCompletionPanel = nullptr;
+    QPushButton* m_tutorialPreviousButton = nullptr;
+    QPushButton* m_tutorialReplayButton = nullptr;
+    QPushButton* m_tutorialNextButton = nullptr;
+    QPushButton* m_tutorialFinishButton = nullptr;
+    QCheckBox* m_tutorialReplayCheck = nullptr;
+    QMediaPlayer* m_tutorialPlayer = nullptr;
+    int m_tutorialStepIndex = 0;
+    bool m_tutorialCompletedThisRun = false;
 };
 
 } // namespace LogiKnottingApp

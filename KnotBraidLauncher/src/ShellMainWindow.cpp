@@ -3,6 +3,7 @@
 #include "ui/BraidingMainWindow.h"
 #include "ui/KnottingMainWindow.h"
 
+#include <QApplication>
 #include <QCoreApplication>
 #include <QDesktopServices>
 #include <QDir>
@@ -11,8 +12,11 @@
 #include <QHBoxLayout>
 #include <QKeySequence>
 #include <QLabel>
+#include <QLocale>
+#include <QMenu>
 #include <QMessageBox>
 #include <QMouseEvent>
+#include <QProcess>
 #include <QPushButton>
 #include <QResizeEvent>
 #include <QSettings>
@@ -27,6 +31,20 @@
 
 namespace {
 constexpr int kFloatingBarMargin = 16;
+
+struct ShellLanguageDef
+{
+    const char *code;
+    const char *label;
+};
+
+constexpr ShellLanguageDef kShellLanguages[] = {
+    {"auto", "Systeme (auto)"},
+    {"fr", "Francais"},
+    {"en", "English"},
+    {"de", "Deutsch"},
+    {"it", "Italiano"},
+};
 
 QPushButton *createFloatingButton(const QString &text, QWidget *parent, bool checkable = false)
 {
@@ -43,6 +61,80 @@ QSettings shellSettings()
                      QSettings::UserScope,
                      QStringLiteral("KnotBraid"),
                      QStringLiteral("Shell"));
+}
+
+QSettings knottingSettings()
+{
+    return QSettings(QSettings::NativeFormat,
+                     QSettings::UserScope,
+                     QStringLiteral("LogiKnotting"),
+                     QStringLiteral("LogiKnotting"));
+}
+
+QSettings braidingSettings()
+{
+    return QSettings(QSettings::NativeFormat,
+                     QSettings::UserScope,
+                     QStringLiteral("LogiBraiding"),
+                     QStringLiteral("LogiBraiding"));
+}
+
+QString shellUiLanguageSettingKey()
+{
+    return QStringLiteral("ui/language");
+}
+
+QString shellLanguageLabel(const QString &code)
+{
+    for (const auto &language : kShellLanguages) {
+        if (code == QString::fromLatin1(language.code)) {
+            return QString::fromLatin1(language.label);
+        }
+    }
+
+    return code;
+}
+
+QString effectiveUiLanguageCode(const QString &configuredCode)
+{
+    QString normalized = configuredCode.trimmed();
+    normalized.replace(QLatin1Char('-'), QLatin1Char('_'));
+
+    if (normalized.isEmpty() || normalized == QStringLiteral("auto")) {
+        const QStringList systemLanguages = QLocale::system().uiLanguages();
+        for (const QString &locale : systemLanguages) {
+            const QString base = locale.section(QLatin1Char('-'), 0, 0).section(QLatin1Char('_'), 0, 0);
+            if (base == QStringLiteral("en") || base == QStringLiteral("de") || base == QStringLiteral("it")) {
+                return base;
+            }
+        }
+        return QStringLiteral("fr");
+    }
+
+    const QString base = normalized.section(QLatin1Char('_'), 0, 0);
+    if (base == QStringLiteral("en") || base == QStringLiteral("de") || base == QStringLiteral("it")) {
+        return base;
+    }
+
+    return QStringLiteral("fr");
+}
+
+QString shellText(const QString &languageCode,
+                  const char *fr,
+                  const char *en,
+                  const char *de,
+                  const char *it)
+{
+    if (languageCode == QStringLiteral("en")) {
+        return QString::fromUtf8(en);
+    }
+    if (languageCode == QStringLiteral("de")) {
+        return QString::fromUtf8(de);
+    }
+    if (languageCode == QStringLiteral("it")) {
+        return QString::fromUtf8(it);
+    }
+    return QString::fromUtf8(fr);
 }
 
 class DraggableFloatingBar final : public QFrame
@@ -161,7 +253,8 @@ QFrame *createHomeCard(const QString &title,
 ShellMainWindow::ShellMainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
-    setWindowTitle(QStringLiteral("KnotBraid"));
+    const QString languageCode = effectiveUiLanguageCode(currentUiLanguageCode());
+    setWindowTitle(shellText(languageCode, "KnotBraid", "KnotBraid", "KnotBraid", "KnotBraid"));
     resize(1500, 920);
 
     auto *central = new QWidget(this);
@@ -197,6 +290,7 @@ ShellMainWindow::ShellMainWindow(QWidget *parent)
     connect(m_homeButton, &QPushButton::clicked, this, &ShellMainWindow::showHome);
     connect(m_knottingButton, &QPushButton::clicked, this, &ShellMainWindow::showKnotting);
     connect(m_braidingButton, &QPushButton::clicked, this, &ShellMainWindow::showBraiding);
+    connect(m_languageButton, &QPushButton::clicked, this, &ShellMainWindow::openLanguageMenu);
     connect(m_helpButton, &QPushButton::clicked, this, &ShellMainWindow::openHelpDocument);
 
     auto *knottingShortcut = new QShortcut(QKeySequence(QStringLiteral("Ctrl+Alt+K")), this);
@@ -279,8 +373,39 @@ void ShellMainWindow::showPage(const QString &pageName)
     setCurrentPage(Page::Home);
 }
 
+void ShellMainWindow::openLanguageMenu()
+{
+    if (m_languageButton == nullptr) {
+        return;
+    }
+
+    QMenu menu(this);
+    const QString currentCode = currentUiLanguageCode();
+
+    for (const auto &language : kShellLanguages) {
+        QAction *action = menu.addAction(QString::fromLatin1(language.label));
+        action->setCheckable(true);
+        action->setChecked(currentCode == QString::fromLatin1(language.code));
+        action->setData(QString::fromLatin1(language.code));
+    }
+
+    QAction *chosenAction =
+        menu.exec(m_languageButton->mapToGlobal(QPoint(0, m_languageButton->height())));
+    if (chosenAction == nullptr) {
+        return;
+    }
+
+    const QString selectedCode = chosenAction->data().toString().trimmed();
+    if (selectedCode.isEmpty() || selectedCode == currentCode) {
+        return;
+    }
+
+    applyShellUiLanguage(selectedCode);
+}
+
 QFrame *ShellMainWindow::createFloatingBar(QWidget *parent)
 {
+    const QString languageCode = effectiveUiLanguageCode(currentUiLanguageCode());
     auto *bar = new DraggableFloatingBar(parent);
     bar->setObjectName(QStringLiteral("floatingBar"));
 
@@ -293,23 +418,50 @@ QFrame *ShellMainWindow::createFloatingBar(QWidget *parent)
     handleLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
     handleLabel->setAlignment(Qt::AlignCenter);
 
-    m_homeButton = createFloatingButton(QStringLiteral("Accueil"), bar, true);
-    m_homeButton->setToolTip(QStringLiteral("Afficher l'accueil du shell"));
+    m_homeButton = createFloatingButton(
+        shellText(languageCode, "Accueil", "Home", "Start", "Home"), bar, true);
+    m_homeButton->setToolTip(shellText(languageCode,
+                                       "Afficher l'accueil du shell",
+                                       "Show the shell home page",
+                                       "Startseite der Suite anzeigen",
+                                       "Mostra la schermata iniziale della suite"));
 
     m_knottingButton = createFloatingButton(QStringLiteral("Knotting"), bar, true);
-    m_knottingButton->setToolTip(QStringLiteral("Basculer vers LogiKnotting (Ctrl+Alt+K)"));
+    m_knottingButton->setToolTip(shellText(languageCode,
+                                           "Basculer vers LogiKnotting (Ctrl+Alt+K)",
+                                           "Switch to LogiKnotting (Ctrl+Alt+K)",
+                                           "Zu LogiKnotting wechseln (Ctrl+Alt+K)",
+                                           "Passa a LogiKnotting (Ctrl+Alt+K)"));
 
     m_braidingButton = createFloatingButton(QStringLiteral("Braiding"), bar, true);
-    m_braidingButton->setToolTip(QStringLiteral("Basculer vers LogiBraiding (Ctrl+Alt+B)"));
+    m_braidingButton->setToolTip(shellText(languageCode,
+                                           "Basculer vers LogiBraiding (Ctrl+Alt+B)",
+                                           "Switch to LogiBraiding (Ctrl+Alt+B)",
+                                           "Zu LogiBraiding wechseln (Ctrl+Alt+B)",
+                                           "Passa a LogiBraiding (Ctrl+Alt+B)"));
 
-    m_helpButton = createFloatingButton(QStringLiteral("Aide"), bar);
+    m_languageButton = createFloatingButton(
+        shellText(languageCode, "Langue", "Language", "Sprache", "Lingua"), bar);
+    m_languageButton->setToolTip(shellText(languageCode,
+                                           "Choisir la langue de la suite KnotBraid",
+                                           "Choose the KnotBraid suite language",
+                                           "Sprache der KnotBraid-Suite auswahlen",
+                                           "Scegli la lingua della suite KnotBraid"));
+
+    m_helpButton = createFloatingButton(
+        shellText(languageCode, "Aide", "Help", "Hilfe", "Aiuto"), bar);
     m_helpButton->setObjectName(QStringLiteral("helpButton"));
-    m_helpButton->setToolTip(QStringLiteral("Ouvrir le manuel KnotBraid (F1)"));
+    m_helpButton->setToolTip(shellText(languageCode,
+                                       "Ouvrir le manuel KnotBraid (F1)",
+                                       "Open the KnotBraid manual (F1)",
+                                       "KnotBraid-Handbuch offnen (F1)",
+                                       "Apri il manuale di KnotBraid (F1)"));
 
     layout->addWidget(handleLabel);
     layout->addWidget(m_homeButton);
     layout->addWidget(m_knottingButton);
     layout->addWidget(m_braidingButton);
+    layout->addWidget(m_languageButton);
     layout->addWidget(m_helpButton);
 
     bar->setMoveCallback([this](const QPoint &position, bool persist) {
@@ -321,6 +473,7 @@ QFrame *ShellMainWindow::createFloatingBar(QWidget *parent)
 
 QWidget *ShellMainWindow::createHomePage()
 {
+    const QString languageCode = effectiveUiLanguageCode(currentUiLanguageCode());
     auto *page = new QWidget(this);
     page->setObjectName(QStringLiteral("homePage"));
 
@@ -328,14 +481,26 @@ QWidget *ShellMainWindow::createHomePage()
     layout->setContentsMargins(36, 36, 36, 36);
     layout->setSpacing(20);
 
-    auto *badge = new QLabel(QStringLiteral("Suite integree"), page);
+    auto *badge = new QLabel(
+        shellText(languageCode, "Suite integree", "Integrated suite", "Integrierte Suite", "Suite integrata"),
+        page);
     badge->setObjectName(QStringLiteral("homeBadge"));
 
-    auto *title = new QLabel(QStringLiteral("Choisissez votre atelier de travail"), page);
+    auto *title = new QLabel(
+        shellText(languageCode,
+                  "Choisissez votre atelier de travail",
+                  "Choose your workspace",
+                  "Wahlen Sie Ihren Arbeitsbereich",
+                  "Scegli il tuo spazio di lavoro"),
+        page);
     title->setObjectName(QStringLiteral("homeTitle"));
 
     auto *subtitle = new QLabel(
-        QStringLiteral("Le shell KnotBraid embarque maintenant LogiKnotting et LogiBraiding dans une seule application, avec une navigation immediate entre les deux univers."),
+        shellText(languageCode,
+                  "Le shell KnotBraid embarque maintenant LogiKnotting et LogiBraiding dans une seule application, avec une navigation immediate entre les deux univers.",
+                  "The KnotBraid shell now embeds LogiKnotting and LogiBraiding in a single application, with immediate navigation between both workspaces.",
+                  "Die KnotBraid-Shell integriert jetzt LogiKnotting und LogiBraiding in einer einzigen Anwendung, mit direkter Navigation zwischen beiden Arbeitsbereichen.",
+                  "La shell KnotBraid integra ora LogiKnotting e LogiBraiding in un'unica applicazione, con navigazione immediata tra i due ambienti."),
         page);
     subtitle->setObjectName(QStringLiteral("homeSubtitle"));
     subtitle->setWordWrap(true);
@@ -345,16 +510,32 @@ QWidget *ShellMainWindow::createHomePage()
 
     cardsRow->addWidget(createHomeCard(
         QStringLiteral("LogiKnotting"),
-        QStringLiteral("Concevez, validez et imprimez vos noeuds topologiques dans l'espace Knotting integre."),
-        QStringLiteral("Ouvrir LogiKnotting"),
+        shellText(languageCode,
+                  "Concevez, validez et imprimez vos noeuds topologiques dans l'espace Knotting integre.",
+                  "Design, validate and print your topological knots in the integrated Knotting workspace.",
+                  "Entwerfen, validieren und drucken Sie Ihre topologischen Knoten im integrierten Knotting-Bereich.",
+                  "Progetta, convalida e stampa i tuoi nodi topologici nello spazio Knotting integrato."),
+        shellText(languageCode,
+                  "Ouvrir LogiKnotting",
+                  "Open LogiKnotting",
+                  "LogiKnotting offnen",
+                  "Apri LogiKnotting"),
         page,
         this,
         SLOT(showKnotting())));
 
     cardsRow->addWidget(createHomeCard(
         QStringLiteral("LogiBraiding"),
-        QStringLiteral("Parcourez vos sequences de tresses, vos variantes ABoK et vos nouvelles etudes dans le module Braiding."),
-        QStringLiteral("Ouvrir LogiBraiding"),
+        shellText(languageCode,
+                  "Parcourez vos sequences de tresses, vos variantes ABoK et vos nouvelles etudes dans le module Braiding.",
+                  "Browse your braiding sequences, ABoK variations and new studies in the Braiding module.",
+                  "Durchsuchen Sie Ihre Flechtfolgen, ABoK-Varianten und neuen Studien im Braiding-Modul.",
+                  "Esplora le tue sequenze di intreccio, le varianti ABoK e i nuovi studi nel modulo Braiding."),
+        shellText(languageCode,
+                  "Ouvrir LogiBraiding",
+                  "Open LogiBraiding",
+                  "LogiBraiding offnen",
+                  "Apri LogiBraiding"),
         page,
         this,
         SLOT(showBraiding())));
@@ -418,20 +599,29 @@ QString ShellMainWindow::resolveHelpDocumentPath() const
 
 void ShellMainWindow::openHelpDocument()
 {
+    const QString languageCode = effectiveUiLanguageCode(currentUiLanguageCode());
     const QString helpPath = resolveHelpDocumentPath();
     if (helpPath.isEmpty()) {
         QMessageBox::information(
             this,
-            QStringLiteral("Aide"),
-            QStringLiteral("Impossible de trouver KnotBraid-Manuel-Utilisateur.pdf."));
+            shellText(languageCode, "Aide", "Help", "Hilfe", "Aiuto"),
+            shellText(languageCode,
+                      "Impossible de trouver KnotBraid-Manuel-Utilisateur.pdf.",
+                      "KnotBraid-Manuel-Utilisateur.pdf could not be found.",
+                      "KnotBraid-Manuel-Utilisateur.pdf konnte nicht gefunden werden.",
+                      "Impossibile trovare KnotBraid-Manuel-Utilisateur.pdf."));
         return;
     }
 
     if (!QDesktopServices::openUrl(QUrl::fromLocalFile(helpPath))) {
         QMessageBox::warning(
             this,
-            QStringLiteral("Aide"),
-            QStringLiteral("Impossible d'ouvrir le manuel : %1").arg(helpPath));
+            shellText(languageCode, "Aide", "Help", "Hilfe", "Aiuto"),
+            shellText(languageCode,
+                      "Impossible d'ouvrir le manuel : %1",
+                      "Unable to open the manual: %1",
+                      "Das Handbuch konnte nicht geoffnet werden: %1",
+                      "Impossibile aprire il manuale: %1").arg(helpPath));
     }
 }
 
@@ -475,6 +665,7 @@ void ShellMainWindow::ensureBraidingWindow()
 
 void ShellMainWindow::setCurrentPage(Page page)
 {
+    const QString languageCode = effectiveUiLanguageCode(currentUiLanguageCode());
     if (page != m_currentPage && m_floatingBarPosition.x() >= 0 && m_floatingBarPosition.y() >= 0) {
         setStoredPositionForPage(m_currentPage, m_floatingBarPosition);
     }
@@ -485,17 +676,25 @@ void ShellMainWindow::setCurrentPage(Page page)
     switch (page) {
     case Page::Home:
         m_stack->setCurrentWidget(m_homePage);
-        setWindowTitle(QStringLiteral("KnotBraid"));
+        setWindowTitle(shellText(languageCode, "KnotBraid", "KnotBraid", "KnotBraid", "KnotBraid"));
         break;
     case Page::Knotting:
         ensureKnottingWindow();
         m_stack->setCurrentWidget(m_knottingPage);
-        setWindowTitle(QStringLiteral("KnotBraid - LogiKnotting"));
+        setWindowTitle(shellText(languageCode,
+                                 "KnotBraid - LogiKnotting",
+                                 "KnotBraid - LogiKnotting",
+                                 "KnotBraid - LogiKnotting",
+                                 "KnotBraid - LogiKnotting"));
         break;
     case Page::Braiding:
         ensureBraidingWindow();
         m_stack->setCurrentWidget(m_braidingPage);
-        setWindowTitle(QStringLiteral("KnotBraid - LogiBraiding"));
+        setWindowTitle(shellText(languageCode,
+                                 "KnotBraid - LogiBraiding",
+                                 "KnotBraid - LogiBraiding",
+                                 "KnotBraid - LogiBraiding",
+                                 "KnotBraid - LogiBraiding"));
         break;
     }
 
@@ -511,6 +710,7 @@ void ShellMainWindow::updateNavigation(Page page)
 
 void ShellMainWindow::updateFloatingBar()
 {
+    const QString languageCode = effectiveUiLanguageCode(currentUiLanguageCode());
     if (m_homeButton) {
         m_homeButton->setChecked(m_currentPage == Page::Home);
     }
@@ -524,7 +724,20 @@ void ShellMainWindow::updateFloatingBar()
     }
 
     if (m_helpButton) {
-        m_helpButton->setToolTip(QStringLiteral("Ouvrir le manuel KnotBraid (F1)"));
+        m_helpButton->setToolTip(shellText(languageCode,
+                                           "Ouvrir le manuel KnotBraid (F1)",
+                                           "Open the KnotBraid manual (F1)",
+                                           "KnotBraid-Handbuch offnen (F1)",
+                                           "Apri il manuale di KnotBraid (F1)"));
+    }
+
+    if (m_languageButton) {
+        m_languageButton->setToolTip(shellText(languageCode,
+                                               "Langue active : %1",
+                                               "Current language: %1",
+                                               "Aktive Sprache: %1",
+                                               "Lingua attiva: %1")
+                                         .arg(shellLanguageLabel(currentUiLanguageCode())));
     }
 
     if (m_floatingBar) {
@@ -640,4 +853,105 @@ void ShellMainWindow::saveShellPreferences() const
     savePosition(QStringLiteral("ui/floating_bar/home"), m_homeFloatingBarPosition);
     savePosition(QStringLiteral("ui/floating_bar/knotting"), m_knottingFloatingBarPosition);
     savePosition(QStringLiteral("ui/floating_bar/braiding"), m_braidingFloatingBarPosition);
+}
+
+QString ShellMainWindow::currentUiLanguageCode() const
+{
+    QSettings settings = shellSettings();
+    const QString languageCode =
+        settings.value(shellUiLanguageSettingKey(), QStringLiteral("auto")).toString().trimmed();
+    return languageCode.isEmpty() ? QStringLiteral("auto") : languageCode;
+}
+
+void ShellMainWindow::applyShellUiLanguage(const QString &languageCode)
+{
+    const QString normalized = languageCode.trimmed().isEmpty() ? QStringLiteral("auto")
+                                                                : languageCode.trimmed();
+    const QString effectiveLanguageCode = effectiveUiLanguageCode(normalized);
+
+    QSettings shell = shellSettings();
+    shell.setValue(shellUiLanguageSettingKey(), normalized);
+    shell.sync();
+
+    QSettings knotting = knottingSettings();
+    knotting.setValue(shellUiLanguageSettingKey(), normalized);
+    knotting.sync();
+
+    QSettings braiding = braidingSettings();
+    braiding.setValue(shellUiLanguageSettingKey(), normalized);
+    braiding.sync();
+
+    updateFloatingBar();
+
+    const QMessageBox::StandardButton answer =
+        QMessageBox::question(this,
+                              shellText(effectiveLanguageCode, "Langue", "Language", "Sprache", "Lingua"),
+                              shellText(effectiveLanguageCode,
+                                        "La langue sera appliquee au prochain demarrage de "
+                                        "KnotBraid, LogiKnotting et LogiBraiding.\n"
+                                        "Redemarrer maintenant ?",
+                                        "The language will be applied at the next startup of "
+                                        "KnotBraid, LogiKnotting and LogiBraiding.\n"
+                                        "Restart now?",
+                                        "Die Sprache wird beim nachsten Start von "
+                                        "KnotBraid, LogiKnotting und LogiBraiding angewendet.\n"
+                                        "Jetzt neu starten?",
+                                        "La lingua verra applicata al prossimo avvio di "
+                                        "KnotBraid, LogiKnotting e LogiBraiding.\n"
+                                        "Riavvia ora?"),
+                              QMessageBox::Yes | QMessageBox::No,
+                              QMessageBox::Yes);
+
+    if (answer != QMessageBox::Yes) {
+        return;
+    }
+
+    const QString appPath = QCoreApplication::applicationFilePath();
+    QStringList arguments = QCoreApplication::arguments().mid(1);
+    arguments.removeAll(QStringLiteral("--knotting"));
+    arguments.removeAll(QStringLiteral("--braiding"));
+
+    for (int i = arguments.size() - 1; i >= 0; --i) {
+        if (arguments.at(i).startsWith(QStringLiteral("--page="))) {
+            arguments.removeAt(i);
+        } else if (arguments.at(i) == QStringLiteral("--page")) {
+            arguments.removeAt(i);
+            if (i < arguments.size()) {
+                arguments.removeAt(i);
+            }
+        }
+    }
+
+    const QString pageArgument = currentPageArgument();
+    if (!pageArgument.isEmpty()) {
+        arguments.append(pageArgument);
+    }
+
+    const bool launched = QProcess::startDetached(appPath, arguments);
+    if (!launched) {
+        QMessageBox::warning(this,
+                             shellText(effectiveLanguageCode, "Langue", "Language", "Sprache", "Lingua"),
+                             shellText(effectiveLanguageCode,
+                                       "Impossible de relancer automatiquement KnotBraid.",
+                                       "Unable to restart KnotBraid automatically.",
+                                       "KnotBraid konnte nicht automatisch neu gestartet werden.",
+                                       "Impossibile riavviare automaticamente KnotBraid."));
+        return;
+    }
+
+    qApp->quit();
+}
+
+QString ShellMainWindow::currentPageArgument() const
+{
+    switch (m_currentPage) {
+    case Page::Home:
+        return QStringLiteral("--page=home");
+    case Page::Knotting:
+        return QStringLiteral("--knotting");
+    case Page::Braiding:
+        return QStringLiteral("--braiding");
+    }
+
+    return QString();
 }

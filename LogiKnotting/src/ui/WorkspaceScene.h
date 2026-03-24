@@ -34,6 +34,7 @@
 #include <QColor>
 #include <QGraphicsScene>
 #include <QPointF>
+#include <QString>
 
 #include <cstddef>
 #include <map>
@@ -95,6 +96,10 @@ public:
     bool setCrossingOver(int idx, bool over);
     bool toggleCrossingOver(int idx);
 
+    void updateHoveredPatternSegment(const QPointF& worldPosMM);
+    bool handlePatternSegmentClick(const QPointF& worldPosMM, QString* message = nullptr);
+    void clearPatternSegmentSelection();
+
 protected:
     void drawBackground(QPainter* p, const QRectF& rect) override;
     void drawForeground(QPainter* p, const QRectF& rect) override;
@@ -127,6 +132,25 @@ private:
 
     bool useTopologyCrossings() const;
     RenderCrossing renderCrossingAt(int idx) const;
+    struct SegmentPatternCrossing
+    {
+        int crossingIndex = -1;
+        Domain::CrossingKey key;
+        bool segmentIsS2 = false;
+        bool segmentOver = true;
+        double order = 0.0;
+    };
+
+    bool segmentRefIsValid(const Domain::SegmentRef& ref) const;
+    const Domain::TopoSegment* topologySegment(const Domain::SegmentRef& ref) const;
+    bool findPatternSegmentNear(const QPointF& worldPosMM,
+                                double radiusMM,
+                                Domain::SegmentRef* outRef) const;
+    std::vector<SegmentPatternCrossing> orderedCrossingsForSegment(
+        const Domain::SegmentRef& ref,
+        const QPointF* anchorPosMM = nullptr) const;
+    QString segmentPatternString(const std::vector<SegmentPatternCrossing>& ordered) const;
+    QString segmentPatternLabel(const Domain::SegmentRef& ref) const;
     QColor ropeColor(Domain::RopeId ropeId) const;
     bool crossingOverState(const RenderCrossing& rc) const;
     bool crossingIsModified(const RenderCrossing& rc) const;
@@ -166,6 +190,10 @@ private:
 
     std::vector<bool> m_legacyModifiedCrossings;
     std::map<Domain::CrossingKey, bool> m_topologyModifiedCrossings;
+    Domain::SegmentRef m_patternSourceSegment;
+    Domain::SegmentRef m_hoveredPatternSegment;
+    QPointF m_patternSourceAnchorMM;
+    bool m_hasPatternSourceAnchor = false;
 };
 
 // ============================================================

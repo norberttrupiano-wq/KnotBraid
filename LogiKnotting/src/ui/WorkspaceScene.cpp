@@ -42,6 +42,9 @@
 #include <cmath>
 #include <algorithm>
 #include <array>
+#include <limits>
+
+static constexpr int kCrossingTooltipDurationMs = 5000;
 
 // -------------------------------------------------
 // Helpers WRAP
@@ -55,6 +58,72 @@ static inline double wrapDelta(double d, double L)
     if (d >  L * 0.5) d -= L;
     if (d < -L * 0.5) d += L;
     return d;
+}
+
+static inline bool isValidSegmentRef(const Domain::SegmentRef& ref)
+{
+    return ref.segIndex >= 0;
+}
+
+static double pointDistanceToSegmentMM(const QPointF& point, const QLineF& segment)
+{
+    const QPointF a = segment.p1();
+    const QPointF b = segment.p2();
+    const QPointF ab(b.x() - a.x(), b.y() - a.y());
+    const QPointF ap(point.x() - a.x(), point.y() - a.y());
+
+    const double ab2 = (ab.x() * ab.x()) + (ab.y() * ab.y());
+    if (ab2 <= 1e-9)
+        return QLineF(point, a).length();
+
+    double t = ((ap.x() * ab.x()) + (ap.y() * ab.y())) / ab2;
+    t = std::clamp(t, 0.0, 1.0);
+
+    const QPointF proj(a.x() + ab.x() * t, a.y() + ab.y() * t);
+    return QLineF(point, proj).length();
+}
+
+static bool isEndpointIntersection(const QLineF& l1, const QLineF& l2, const QPointF& inter)
+{
+    constexpr double eps = 1e-6;
+    return (QLineF(inter, l1.p1()).length() <= eps) ||
+           (QLineF(inter, l1.p2()).length() <= eps) ||
+           (QLineF(inter, l2.p1()).length() <= eps) ||
+           (QLineF(inter, l2.p2()).length() <= eps);
+}
+
+static QLineF shiftedSegmentLine(const Domain::TopoSegment& segment, double shift)
+{
+    return QLineF(
+        QPointF(static_cast<double>(segment.a.xAbs) + shift, static_cast<double>(segment.a.y)),
+        QPointF(static_cast<double>(segment.b.xAbs) + shift, static_cast<double>(segment.b.y)));
+}
+
+static int bestAnchorShiftForPoint(const Domain::TopoSegment& segment,
+                                   double ribbonLengthMM,
+                                   const QPointF* anchorPosMM)
+{
+    if (!anchorPosMM || ribbonLengthMM <= 0.0)
+        return 0;
+
+    const double midX = 0.5 * (static_cast<double>(segment.a.xAbs) + static_cast<double>(segment.b.xAbs));
+    const int kBase = static_cast<int>(std::llround((anchorPosMM->x() - midX) / ribbonLengthMM));
+
+    int bestK = kBase;
+    double bestDistance = std::numeric_limits<double>::max();
+    for (int dk = -2; dk <= 2; ++dk)
+    {
+        const int k = kBase + dk;
+        const QLineF candidate = shiftedSegmentLine(segment, static_cast<double>(k) * ribbonLengthMM);
+        const double distance = pointDistanceToSegmentMM(*anchorPosMM, candidate);
+        if (distance < bestDistance)
+        {
+            bestDistance = distance;
+            bestK = k;
+        }
+    }
+
+    return bestK;
 }
 
 // -------------------------------------------------
@@ -80,6 +149,7 @@ void WorkspaceScene::setModel(Model::WorkspaceModel* model)
     m_cacheCrossingsCount = 0;
     m_crossingsBySegB.clear();
     clearCrossingEditMarks();
+    clearPatternSegmentSelection();
 
     update();
 }
@@ -1088,7 +1158,11 @@ void WorkspaceScene::refreshHoveredCrossing()
         return;
 
     const QPoint tipPos = QCursor::pos() + QPoint(0, -24);
-    QToolTip::showText(tipPos, crossingTooltipText(rc, m_hoveredCrossingIndex, true), nullptr, QRect(), 10000);
+    QToolTip::showText(tipPos,
+                       crossingTooltipText(rc, m_hoveredCrossingIndex, true),
+                       nullptr,
+                       QRect(),
+                       kCrossingTooltipDurationMs);
 }
 
 void WorkspaceScene::refreshActiveCrossingTooltip()
@@ -1100,7 +1174,11 @@ void WorkspaceScene::refreshActiveCrossingTooltip()
     if (!rc.valid)
         return;
 
-    QToolTip::showText(QCursor::pos(), crossingTooltipText(rc, m_activeCrossingIndex, true));
+    QToolTip::showText(QCursor::pos(),
+                       crossingTooltipText(rc, m_activeCrossingIndex, true),
+                       nullptr,
+                       QRect(),
+                       kCrossingTooltipDurationMs);
 }
 
 void WorkspaceScene::refreshActiveCrossingTooltipAt(const QPoint& globalPos)
@@ -1112,7 +1190,11 @@ void WorkspaceScene::refreshActiveCrossingTooltipAt(const QPoint& globalPos)
     if (!rc.valid)
         return;
 
-    QToolTip::showText(globalPos, crossingTooltipText(rc, m_activeCrossingIndex, true));
+    QToolTip::showText(globalPos,
+                       crossingTooltipText(rc, m_activeCrossingIndex, true),
+                       nullptr,
+                       QRect(),
+                       kCrossingTooltipDurationMs);
 }
 
 bool WorkspaceScene::useTopologyCrossings() const
@@ -1169,6 +1251,219 @@ WorkspaceScene::RenderCrossing WorkspaceScene::renderCrossingAt(int idx) const
     rc.legacyNewSegmentOver = c.newSegmentOver;
 
     return rc;
+}
+
+bool WorkspaceScene::segmentRefIsValid(const Domain::SegmentRef& ref) const
+{
+    return isValidSegmentRef(ref);
+}
+
+const Domain::TopoSegment* WorkspaceScene::topologySegment(const Domain::SegmentRef& ref) const
+{
+    if (!m_model || !isValidSegmentRef(ref))
+        return nullptr;
+
+    const auto& topo = m_model->topologySnapshot();
+    const auto it = std::find_if(topo.segments.begin(),
+                                 topo.segments.end(),
+                                 [&ref](const Domain::TopoSegment& segment)
+                                 {
+                                     return segment.ref == ref;
+                                 });
+    return (it != topo.segments.end()) ? &(*it) : nullptr;
+}
+
+bool WorkspaceScene::findPatternSegmentNear(const QPointF& worldPosMM,
+                                            double radiusMM,
+                                            Domain::SegmentRef* outRef) const
+{
+    if (outRef)
+        *outRef = Domain::SegmentRef();
+
+    if (!m_model)
+        return false;
+
+    const auto& topo = m_model->topologySnapshot();
+    const double L = static_cast<double>(topo.ribbonLengthMM);
+    if (L <= 0.0)
+        return false;
+
+    const int activeRope = std::clamp(m_model->activeRopeId(),
+                                      0,
+                                      static_cast<int>(Domain::MaxRopes) - 1);
+
+    double bestDistance = std::numeric_limits<double>::max();
+    Domain::SegmentRef bestRef;
+
+    for (const Domain::TopoSegment& segment : topo.segments)
+    {
+        if (static_cast<int>(segment.ref.ropeId) != activeRope)
+            continue;
+
+        const QPointF a(static_cast<double>(segment.a.xAbs), static_cast<double>(segment.a.y));
+        const QPointF b(static_cast<double>(segment.b.xAbs), static_cast<double>(segment.b.y));
+        const double midX = (a.x() + b.x()) * 0.5;
+        const int kBase = static_cast<int>(std::llround((worldPosMM.x() - midX) / L));
+
+        for (int dk = -1; dk <= 1; ++dk)
+        {
+            const double shift = static_cast<double>(kBase + dk) * L;
+            const QLineF wrapped(QPointF(a.x() + shift, a.y()),
+                                 QPointF(b.x() + shift, b.y()));
+            const double distance = pointDistanceToSegmentMM(worldPosMM, wrapped);
+            if (distance > radiusMM || distance >= bestDistance)
+                continue;
+
+            bestDistance = distance;
+            bestRef = segment.ref;
+        }
+    }
+
+    if (!isValidSegmentRef(bestRef))
+        return false;
+
+    if (outRef)
+        *outRef = bestRef;
+    return true;
+}
+
+std::vector<WorkspaceScene::SegmentPatternCrossing>
+WorkspaceScene::orderedCrossingsForSegment(const Domain::SegmentRef& ref,
+                                           const QPointF* anchorPosMM) const
+{
+    std::vector<SegmentPatternCrossing> ordered;
+    if (!m_model || !isValidSegmentRef(ref))
+        return ordered;
+
+    const Domain::TopoSegment* segment = topologySegment(ref);
+    if (!segment)
+        return ordered;
+
+    const auto& topo = m_model->topologySnapshot();
+    const auto& crossings = topo.crossings;
+    const double L = static_cast<double>(topo.ribbonLengthMM);
+    ordered.reserve(crossings.size());
+
+    const int anchorShiftK = bestAnchorShiftForPoint(*segment, L, anchorPosMM);
+    const double anchorShift = static_cast<double>(anchorShiftK) * L;
+    const QLineF anchorLine = shiftedSegmentLine(*segment, anchorShift);
+    if (anchorLine.length() <= 1e-9)
+        return ordered;
+
+    auto anchorPrefersPointA = [&]() -> bool
+    {
+        if (!anchorPosMM)
+            return true;
+
+        return QLineF(*anchorPosMM, anchorLine.p1()).length()
+               <= QLineF(*anchorPosMM, anchorLine.p2()).length();
+    };
+
+    const bool startFromPointA = anchorPrefersPointA();
+
+    for (std::size_t i = 0; i < crossings.size(); ++i)
+    {
+        const Domain::TopoCrossing& crossing = crossings[i];
+        const bool segmentIsS2 = (crossing.s2 == ref);
+        const bool segmentIsS1 = (crossing.s1 == ref);
+        if (!segmentIsS1 && !segmentIsS2)
+            continue;
+
+        const Domain::SegmentRef otherRef = segmentIsS2 ? crossing.s1 : crossing.s2;
+        const Domain::TopoSegment* otherSegment = topologySegment(otherRef);
+        if (!otherSegment)
+            continue;
+
+        const double aMin = std::min(anchorLine.p1().x(), anchorLine.p2().x());
+        const double aMax = std::max(anchorLine.p1().x(), anchorLine.p2().x());
+        const double bMin0 = static_cast<double>(std::min(otherSegment->a.xAbs, otherSegment->b.xAbs));
+        const double bMax0 = static_cast<double>(std::max(otherSegment->a.xAbs, otherSegment->b.xAbs));
+        const int kMin = (L > 0.0)
+                             ? (static_cast<int>(std::floor((aMin - bMax0) / L)) - 1)
+                             : 0;
+        const int kMax = (L > 0.0)
+                             ? (static_cast<int>(std::ceil((aMax - bMin0) / L)) + 1)
+                             : 0;
+
+        bool hasExactPos = false;
+        QPointF exactPos;
+        double bestScore = std::numeric_limits<double>::max();
+        const double targetX = static_cast<double>(crossing.xAbs) + anchorShift;
+
+        for (int kOther = kMin; kOther <= kMax; ++kOther)
+        {
+            const QLineF otherLine =
+                shiftedSegmentLine(*otherSegment, static_cast<double>(kOther) * L);
+
+            QPointF inter;
+            if (anchorLine.intersects(otherLine, &inter) != QLineF::BoundedIntersection)
+                continue;
+
+            if (isEndpointIntersection(anchorLine, otherLine, inter))
+                continue;
+
+            const double score = std::abs(inter.x() - targetX);
+            if (!hasExactPos || score < bestScore)
+            {
+                bestScore = score;
+                exactPos = inter;
+                hasExactPos = true;
+            }
+        }
+
+        if (!hasExactPos)
+            continue;
+
+        const QPointF ab(anchorLine.p2().x() - anchorLine.p1().x(),
+                         anchorLine.p2().y() - anchorLine.p1().y());
+        const QPointF ap(exactPos.x() - anchorLine.p1().x(),
+                         exactPos.y() - anchorLine.p1().y());
+        const double ab2 = (ab.x() * ab.x()) + (ab.y() * ab.y());
+        if (ab2 <= 1e-9)
+            continue;
+        const double rawT = ((ap.x() * ab.x()) + (ap.y() * ab.y())) / ab2;
+
+        const double order = startFromPointA ? rawT : (1.0 - rawT);
+
+        SegmentPatternCrossing entry;
+        entry.crossingIndex = static_cast<int>(i);
+        entry.key = crossing.key;
+        entry.segmentIsS2 = segmentIsS2;
+        entry.segmentOver = segmentIsS2 ? crossing.s2OverS1 : !crossing.s2OverS1;
+        entry.order = order;
+        ordered.push_back(entry);
+    }
+
+    std::sort(ordered.begin(),
+              ordered.end(),
+              [](const SegmentPatternCrossing& lhs, const SegmentPatternCrossing& rhs)
+              {
+                  if (std::fabs(lhs.order - rhs.order) > 1e-9)
+                      return lhs.order < rhs.order;
+                  return lhs.crossingIndex < rhs.crossingIndex;
+              });
+
+    return ordered;
+}
+
+QString WorkspaceScene::segmentPatternLabel(const Domain::SegmentRef& ref) const
+{
+    if (!isValidSegmentRef(ref))
+        return tr("segment inconnu");
+
+    return tr("segment %1").arg(ref.segIndex + 1);
+}
+
+QString WorkspaceScene::segmentPatternString(const std::vector<SegmentPatternCrossing>& ordered) const
+{
+    if (ordered.empty())
+        return tr("(aucun)");
+
+    QStringList parts;
+    parts.reserve(static_cast<qsizetype>(ordered.size()));
+    for (const SegmentPatternCrossing& entry : ordered)
+        parts << (entry.segmentOver ? tr("sur") : tr("dessous"));
+    return parts.join(QStringLiteral(" - "));
 }
 
 QColor WorkspaceScene::ropeColor(Domain::RopeId ropeId) const
@@ -1357,6 +1652,177 @@ bool WorkspaceScene::toggleCrossingOver(int idx)
     return setCrossingOver(idx, !cur);
 }
 
+void WorkspaceScene::updateHoveredPatternSegment(const QPointF& worldPosMM)
+{
+    Domain::SegmentRef hovered;
+    if (!findPatternSegmentNear(worldPosMM, 3.0, &hovered))
+        hovered = Domain::SegmentRef();
+
+    if (hovered == m_hoveredPatternSegment)
+        return;
+
+    m_hoveredPatternSegment = hovered;
+    update();
+}
+
+bool WorkspaceScene::handlePatternSegmentClick(const QPointF& worldPosMM, QString* message)
+{
+    if (message)
+        message->clear();
+
+    if (!m_model || !useTopologyCrossings())
+    {
+        if (message)
+            *message = tr("Aucun croisement topologique disponible.");
+        return false;
+    }
+
+    Domain::SegmentRef clicked;
+    if (!findPatternSegmentNear(worldPosMM, 3.0, &clicked))
+    {
+        if (message)
+            *message = tr("Aucun segment detecte sur la corde active.");
+        return false;
+    }
+
+    const std::vector<SegmentPatternCrossing> clickedOrder =
+        orderedCrossingsForSegment(clicked, &worldPosMM);
+    if (clickedOrder.empty())
+    {
+        if (message)
+            *message = tr("Ce segment ne contient aucun croisement.");
+        return false;
+    }
+
+    if (!isValidSegmentRef(m_patternSourceSegment))
+    {
+        m_patternSourceSegment = clicked;
+        m_patternSourceAnchorMM = worldPosMM;
+        m_hasPatternSourceAnchor = true;
+        update();
+        if (message)
+        {
+            *message = tr("%1 selectionne : choisir un segment cible sur la corde active.")
+                           .arg(segmentPatternLabel(clicked));
+        }
+        return true;
+    }
+
+    if (clicked == m_patternSourceSegment)
+    {
+        clearPatternSegmentSelection();
+        if (message)
+            *message = tr("Segment source deselectionne.");
+        return true;
+    }
+
+    const std::vector<SegmentPatternCrossing> sourceOrder =
+        orderedCrossingsForSegment(m_patternSourceSegment,
+                                   m_hasPatternSourceAnchor ? &m_patternSourceAnchorMM : nullptr);
+    if (sourceOrder.empty())
+    {
+        m_patternSourceSegment = clicked;
+        m_patternSourceAnchorMM = worldPosMM;
+        m_hasPatternSourceAnchor = true;
+        update();
+        if (message)
+        {
+            *message = tr("%1 selectionne : choisir un segment cible sur la corde active.")
+                           .arg(segmentPatternLabel(clicked));
+        }
+        return true;
+    }
+
+    if (sourceOrder.size() != clickedOrder.size())
+    {
+        if (message)
+        {
+            *message = tr("Impossible : source %1 croisements, cible %2.")
+                           .arg(static_cast<qulonglong>(sourceOrder.size()))
+                           .arg(static_cast<qulonglong>(clickedOrder.size()));
+        }
+        return false;
+    }
+
+    int changedCount = 0;
+    for (std::size_t i = 0; i < sourceOrder.size(); ++i)
+    {
+        const bool desiredSegmentOver = sourceOrder[i].segmentOver;
+        const bool desiredS2OverS1 = clickedOrder[i].segmentIsS2
+                                         ? desiredSegmentOver
+                                         : !desiredSegmentOver;
+
+        if (clickedOrder[i].crossingIndex >= 0
+            && clickedOrder[i].crossingIndex < crossingCount())
+        {
+            bool ok = false;
+            const bool currentOver = crossingIsOver(clickedOrder[i].crossingIndex, &ok);
+            const bool currentSegmentOver = clickedOrder[i].segmentIsS2
+                                                ? currentOver
+                                                : !currentOver;
+            if (ok && currentSegmentOver == desiredSegmentOver)
+                continue;
+        }
+
+        if (!m_model->setTopologyCrossingOver(clickedOrder[i].key, desiredS2OverS1))
+        {
+            if (message)
+                *message = tr("Echec pendant la duplication des croisements.");
+            return false;
+        }
+
+        if (clickedOrder[i].crossingIndex >= 0)
+            markCrossingModified(renderCrossingAt(clickedOrder[i].crossingIndex));
+        ++changedCount;
+    }
+
+    if (m_hoveredCrossingIndex >= 0)
+        refreshHoveredCrossing();
+
+    update();
+
+    if (message)
+    {
+        const QString sourcePattern = segmentPatternString(sourceOrder);
+        const QString targetPattern =
+            segmentPatternString(changedCount > 0 ? orderedCrossingsForSegment(clicked, &worldPosMM)
+                                                  : clickedOrder);
+
+        if (changedCount > 0)
+        {
+            *message = tr("Croisements copies de %1 vers %2.\nSource : %3\nCible : %4")
+                           .arg(segmentPatternLabel(m_patternSourceSegment),
+                                segmentPatternLabel(clicked),
+                                sourcePattern,
+                                targetPattern);
+        }
+        else
+        {
+            *message = tr("Le segment cible possede deja le meme ordre de croisements.\n"
+                          "Source : %1\n"
+                          "Cible : %2\n"
+                          "Les halos rouges indiquent seulement les croisements modifies pendant la session.")
+                           .arg(sourcePattern, targetPattern);
+        }
+    }
+
+    return true;
+}
+
+void WorkspaceScene::clearPatternSegmentSelection()
+{
+    const bool hadSelection = isValidSegmentRef(m_patternSourceSegment)
+                              || isValidSegmentRef(m_hoveredPatternSegment);
+
+    m_patternSourceSegment = Domain::SegmentRef();
+    m_hoveredPatternSegment = Domain::SegmentRef();
+    m_patternSourceAnchorMM = QPointF();
+    m_hasPatternSourceAnchor = false;
+
+    if (hadSelection)
+        update();
+}
+
 QPointF WorkspaceScene::activeCrossingAbsPosMM() const
 {
     const RenderCrossing rc = renderCrossingAt(m_activeCrossingIndex);
@@ -1370,6 +1836,7 @@ void WorkspaceScene::setCrossingOverviewEnabled(bool enabled)
 
     m_crossingOverviewEnabled = enabled;
     clearCrossingEditMarks();
+    clearPatternSegmentSelection();
 
     update();
 }
@@ -1521,6 +1988,66 @@ void WorkspaceScene::drawForeground(QPainter* p, const QRectF& rect)
             p->drawEllipse(pos, radius, radius);
         }
     };
+
+    auto drawWrappedSegmentHighlight =
+        [&](const Domain::SegmentRef& ref, const QColor& color, qreal width, Qt::PenStyle style)
+    {
+        const Domain::TopoSegment* segment = topologySegment(ref);
+        if (!segment)
+            return;
+
+        QPen glow(color);
+        glow.setCosmetic(true);
+        glow.setWidthF(width + 2.0);
+        glow.setCapStyle(Qt::RoundCap);
+        glow.setStyle(style);
+        glow.setColor(QColor(color.red(), color.green(), color.blue(), 70));
+
+        QPen linePen(color);
+        linePen.setCosmetic(true);
+        linePen.setWidthF(width);
+        linePen.setCapStyle(Qt::RoundCap);
+        linePen.setStyle(style);
+
+        const double x1 = static_cast<double>(segment->a.xAbs);
+        const double y1 = static_cast<double>(segment->a.y);
+        const double x2 = static_cast<double>(segment->b.xAbs);
+        const double y2 = static_cast<double>(segment->b.y);
+
+        const double minX = std::min(x1, x2);
+        const double maxX = std::max(x1, x2);
+        int kMin = 0;
+        int kMax = 0;
+        if (Lmm > 0)
+        {
+            const double L = static_cast<double>(Lmm);
+            kMin = static_cast<int>(std::floor((rect.left() - maxX) / L)) - 1;
+            kMax = static_cast<int>(std::ceil((rect.right() - minX) / L)) + 1;
+        }
+
+        for (int k = kMin; k <= kMax; ++k)
+        {
+            const double shift = static_cast<double>(k) * static_cast<double>(Lmm);
+            const QLineF line(QPointF(x1 + shift, y1), QPointF(x2 + shift, y2));
+            const QRectF lineBounds = QRectF(line.p1(), line.p2()).normalized();
+            if (!lineBounds.adjusted(-6.0, -6.0, 6.0, 6.0).intersects(rect))
+                continue;
+
+            p->setPen(glow);
+            p->drawLine(line);
+            p->setPen(linePen);
+            p->drawLine(line);
+        }
+    };
+
+    const bool hasSourceSegment = isValidSegmentRef(m_patternSourceSegment);
+    const bool hasHoveredSegment = isValidSegmentRef(m_hoveredPatternSegment);
+
+    if (hasSourceSegment)
+        drawWrappedSegmentHighlight(m_patternSourceSegment, QColor(0, 168, 190), 2.4, Qt::SolidLine);
+
+    if (hasHoveredSegment && !(m_hoveredPatternSegment == m_patternSourceSegment))
+        drawWrappedSegmentHighlight(m_hoveredPatternSegment, QColor(255, 150, 40), 2.0, Qt::DashLine);
 
     if (m_crossingOverviewEnabled)
     {
