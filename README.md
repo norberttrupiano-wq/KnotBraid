@@ -17,16 +17,26 @@ Le dépôt est organisé en **monorepo** afin de publier l’ensemble de la suit
 
 ## Prérequis
 
-- Windows (PowerShell)
+- Windows ou Linux (Ubuntu)
 - CMake 3.16 ou supérieur
-- Qt 6 (exemple local : `C:/Qt/6.10.2/msvc2022_64`)
-- Compilateur C++17 (MSVC)
+- Qt 6
+- Compilateur C++17 (MSVC, GCC ou Clang)
 
-Note: `launch-suite.ps1` et `KnotBraidLauncher` utilisent d'abord `KNOTBRAID_QT_PREFIX`, sinon ils detectent automatiquement le dernier `C:/Qt/*/msvc2022_64`.
+## Version Qt de reference
+
+Le projet est actuellement compile et teste avec :
+
+- `Qt 6.10.2`
+- kit `msvc2022_64`
+
+Si vous recompilez pour un autre environnement, adaptez simplement `CMAKE_PREFIX_PATH`
+ou la variable d'environnement `KNOTBRAID_QT_PREFIX` vers votre installation Qt 6.
+
+Note: `launch-suite.ps1`, `launch-suite.sh` et `KnotBraidLauncher` utilisent d'abord `KNOTBRAID_QT_PREFIX`. Sous Linux, ce prefixe peut rester vide si Qt 6 est installe via le systeme.
 
 ## Compilation rapide
 
-Depuis la racine `E:/KnotBraid` :
+Depuis la racine du depot :
 
 ### LogiKnotting
 
@@ -41,6 +51,55 @@ cmake --build LogiKnotting/build --config Release
 cmake -S LogiBraiding -B LogiBraiding/build -DCMAKE_PREFIX_PATH="C:/Qt/6.10.2/msvc2022_64"
 cmake --build LogiBraiding/build --config Release
 ```
+
+### Ubuntu / Linux
+
+```bash
+cmake -S LogiKnotting -B LogiKnotting/build -DCMAKE_BUILD_TYPE=Release
+cmake --build LogiKnotting/build
+
+cmake -S LogiBraiding -B LogiBraiding/build -DCMAKE_BUILD_TYPE=Release
+cmake --build LogiBraiding/build
+```
+
+Pour lancer ou compiler depuis Linux, le depot fournit aussi :
+
+```bash
+bash ./launch-suite.sh --build-if-missing
+```
+
+## Recuperer depuis GitHub et recompiler sous Ubuntu
+
+Procedure courte :
+
+1. Installer les dependances principales :
+
+```bash
+sudo apt update
+sudo apt install -y git cmake g++ qt6-base-dev qt6-base-dev-tools qt6-multimedia-dev qt6-tools-dev qt6-tools-dev-tools
+```
+
+2. Recuperer les sources :
+
+```bash
+git clone https://github.com/norberttrupiano-wq/KnotBraid.git
+cd KnotBraid
+```
+
+3. Compiler la suite principale :
+
+```bash
+bash ./launch-suite.sh --app KnotBraid --build-if-missing --no-launch
+```
+
+4. Lancer l'application :
+
+```bash
+bash ./launch-suite.sh --app KnotBraid
+```
+
+Si Qt 6 n'est pas fourni par les paquets Ubuntu, exportez d'abord `KNOTBRAID_QT_PREFIX`
+vers votre installation Qt avant la compilation.
 
 ## Nettoyage d’un build bloqué
 

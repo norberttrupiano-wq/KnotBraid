@@ -9,28 +9,45 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+function(knotbraid_first_existing_path out_var)
+    set(found_path "")
+    foreach(candidate IN ITEMS ${ARGN})
+        if(EXISTS "${candidate}")
+            set(found_path "${candidate}")
+            break()
+        endif()
+    endforeach()
+    set(${out_var} "${found_path}" PARENT_SCOPE)
+endfunction()
+
 file(GLOB KNOTBRAID_LOGIKNOTTING_TRANSLATION_QM_FILES
     "${CMAKE_CURRENT_SOURCE_DIR}/../LogiKnotting/translations/*.qm"
 )
 
-file(GLOB KNOTBRAID_DOC_PDF_FILES CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/../Docs/*.pdf"
+knotbraid_first_existing_path(KNOTBRAID_DOC_DIR
+    "${CMAKE_CURRENT_SOURCE_DIR}/../docs"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../Docs"
 )
-
-set(KNOTBRAID_TUTORIAL_ASSET_DIR "")
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../Docs/tutorial")
-    set(KNOTBRAID_TUTORIAL_ASSET_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../Docs/tutorial")
-elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../Docs/Tutorial")
-    set(KNOTBRAID_TUTORIAL_ASSET_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../Docs/Tutorial")
-elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../Docs/tutoriel")
-    set(KNOTBRAID_TUTORIAL_ASSET_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../Docs/tutoriel")
-elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../Docs/Tutoriel")
-    set(KNOTBRAID_TUTORIAL_ASSET_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../Docs/Tutoriel")
-elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../Docs/Videos Tutoriel")
-    set(KNOTBRAID_TUTORIAL_ASSET_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../Docs/Videos Tutoriel")
-elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../Docs/Vidéos Tutoriel")
-    set(KNOTBRAID_TUTORIAL_ASSET_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../Docs/Vidéos Tutoriel")
+if(KNOTBRAID_DOC_DIR)
+    file(GLOB KNOTBRAID_DOC_PDF_FILES CONFIGURE_DEPENDS
+        "${KNOTBRAID_DOC_DIR}/*.pdf"
+    )
 endif()
+
+knotbraid_first_existing_path(KNOTBRAID_TUTORIAL_ASSET_DIR
+    "${CMAKE_CURRENT_SOURCE_DIR}/../docs/tutorial"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../docs/Tutorial"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../docs/tutoriel"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../docs/Tutoriel"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../docs/Videos Tutoriel"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../docs/Vidéos Tutoriel"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../Docs/tutorial"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../Docs/Tutorial"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../Docs/tutoriel"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../Docs/Tutoriel"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../Docs/Videos Tutoriel"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../Docs/Vidéos Tutoriel"
+)
 
 find_package(Qt6 REQUIRED COMPONENTS Widgets PrintSupport CoreTools Multimedia MultimediaWidgets)
 

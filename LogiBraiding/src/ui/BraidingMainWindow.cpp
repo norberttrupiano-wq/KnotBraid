@@ -2423,11 +2423,20 @@ void MainWindow::openReferenceDocument()
     const QString fileName = QStringLiteral("Solid Sinnet variations.pdf");
 
     const QStringList candidates = {
+        QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("docs/%1").arg(fileName)),
+        QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("Docs/%1").arg(fileName)),
+        QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("../../docs/%1").arg(fileName)),
         QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("../../Docs/%1").arg(fileName)),
+        QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("../docs/%1").arg(fileName)),
         QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("../Docs/%1").arg(fileName)),
         QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("Docs/%1").arg(fileName)),
+        QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("../../../LogiBraiding/docs/%1").arg(fileName)),
+        QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("../../../LogiBraiding/Docs/%1").arg(fileName)),
+        QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("../../../../LogiBraiding/docs/%1").arg(fileName)),
         QDir::current().filePath(QStringLiteral("Docs/%1").arg(fileName)),
-        QDir(QStringLiteral("E:/LogiBrainding/Docs")).filePath(fileName)
+        QDir::current().filePath(QStringLiteral("docs/%1").arg(fileName)),
+        QDir::current().filePath(QStringLiteral("LogiBraiding/Docs/%1").arg(fileName)),
+        QDir::current().filePath(QStringLiteral("LogiBraiding/docs/%1").arg(fileName))
     };
 
     QString docPath;
