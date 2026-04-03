@@ -5,10 +5,10 @@
 ; ============================================================
 
 #define MyAppName "KnotBraid"
-#define MyAppVersion "1.0"
-#define MyReleaseLabel "V1.0"
+#define MyAppVersion "1.00"
+#define MyReleaseLabel "V1.00"
 #define MyAppPublisher "Norbert Trupiano"
-#define MyAppURL "https://github.com/norberttrupiano-wq/LogiKnotting"
+#define MyAppURL "https://github.com/norberttrupiano-wq/KnotBraid"
 #define MyAppExeName "KnotBraid.exe"
 #define MyManualName "KnotBraid-Manuel-Utilisateur.pdf"
 #define MyEnglishManualName "KnotBraid-User-Manual-en.pdf"
