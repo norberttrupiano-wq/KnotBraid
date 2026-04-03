@@ -1,0 +1,47 @@
+name: Ubuntu Build
+
+on:
+  push:
+    branches:
+      - main
+      - 'codex/**'
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build-ubuntu:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Qt and build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake \
+            g++ \
+            ninja-build \
+            qt6-base-dev \
+            qt6-base-dev-tools \
+            qt6-multimedia-dev \
+            qt6-tools-dev \
+            qt6-tools-dev-tools
+
+      - name: Validate Linux helper script syntax
+        run: bash -n ./launch-suite.sh
+
+      - name: Configure KnotBraid on Ubuntu
+        run: |
+          cmake -S KnotBraidLauncher -B KnotBraidLauncher/build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build KnotBraid and KnotBraidLauncher
+        run: |
+          cmake --build KnotBraidLauncher/build --target KnotBraid KnotBraidLauncher
+
+      - name: Verify launch-suite.sh can resolve built artifacts
+        run: bash ./launch-suite.sh --app KnotBraid --no-launch

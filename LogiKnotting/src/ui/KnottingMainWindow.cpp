@@ -87,7 +87,7 @@
 #include <algorithm>
 #include <cmath>
 
-#include "../model/workspacemodel.h"
+#include "../model/WorkspaceModel.h"
 #include "WorkspaceView.h"
 #include "WorkspaceScene.h"
 
