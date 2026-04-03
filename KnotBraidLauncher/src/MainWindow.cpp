@@ -9,6 +9,7 @@
 #include <QLabel>
 #include <QProcess>
 #include <QPushButton>
+#include <QStandardPaths>
 #include <QStringList>
 #include <QVersionNumber>
 #include <QVBoxLayout>
@@ -29,8 +30,37 @@ QString tail(const QString &text, int maxChars)
     return text.right(maxChars);
 }
 
+QString probeQtPrefix(const QString &program, const QStringList &arguments)
+{
+    if (program.isEmpty()) {
+        return QString();
+    }
+
+    QProcess process;
+    process.setProgram(program);
+    process.setArguments(arguments);
+    process.setProcessChannelMode(QProcess::MergedChannels);
+    process.start();
+    if (!process.waitForStarted(3000)) {
+        return QString();
+    }
+    if (!process.waitForFinished(5000)
+        || process.exitStatus() != QProcess::NormalExit
+        || process.exitCode() != 0) {
+        return QString();
+    }
+
+    const QString prefixPath = QString::fromLocal8Bit(process.readAllStandardOutput()).trimmed();
+    if (prefixPath.isEmpty()) {
+        return QString();
+    }
+
+    return QDir::cleanPath(prefixPath);
+}
+
 QString defaultQtPrefixPath()
 {
+#ifdef Q_OS_WIN
     const QDir qtRoot(QStringLiteral("C:/Qt"));
     if (qtRoot.exists()) {
         QVersionNumber bestVersion;
@@ -64,6 +94,42 @@ QString defaultQtPrefixPath()
     }
 
     return QStringLiteral("C:/Qt/6.10.2/msvc2022_64");
+#else
+    const QStringList toolCandidates = {
+        QStringLiteral("qtpaths6"),
+        QStringLiteral("qtpaths"),
+        QStringLiteral("qmake6"),
+        QStringLiteral("qmake")
+    };
+
+    for (const QString &toolName : toolCandidates) {
+        const QString toolPath = QStandardPaths::findExecutable(toolName);
+        if (toolPath.isEmpty()) {
+            continue;
+        }
+
+        const QString prefixPath =
+            toolName.startsWith(QStringLiteral("qtpaths"))
+                ? probeQtPrefix(toolPath,
+                                {QStringLiteral("--qt-query"), QStringLiteral("QT_INSTALL_PREFIX")})
+                : probeQtPrefix(toolPath,
+                                {QStringLiteral("-query"), QStringLiteral("QT_INSTALL_PREFIX")});
+        if (!prefixPath.isEmpty() && QDir(prefixPath).exists()) {
+            return prefixPath;
+        }
+    }
+
+    return QString();
+#endif
+}
+
+QString platformExecutableName(const QString &baseName)
+{
+#ifdef Q_OS_WIN
+    return baseName + QStringLiteral(".exe");
+#else
+    return baseName;
+#endif
 }
 
 #ifdef Q_OS_WIN
@@ -147,7 +213,11 @@ MainWindow::MainWindow(QWidget *parent)
     m_buildIfMissingCheck->setChecked(true);
 
     auto *qtHint = new QLabel(
+#ifdef Q_OS_WIN
         QStringLiteral("Qt prefix: variable KNOTBRAID_QT_PREFIX, sinon auto-detection de C:/Qt/*/msvc2022_64."),
+#else
+        QStringLiteral("Qt prefix: variable KNOTBRAID_QT_PREFIX. Sous Linux, laissez vide si Qt 6 est installe via le systeme."),
+#endif
         central);
     qtHint->setWordWrap(true);
 
@@ -375,10 +445,22 @@ bool MainWindow::buildTarget(const AppTarget &target, QString *errorMessage)
     setStatus(QStringLiteral("Configuration CMake de %1...").arg(target.displayName));
     qApp->processEvents();
 
+    QStringList configureArguments = {
+        QStringLiteral("-S"), projectPath,
+        QStringLiteral("-B"), buildPath
+    };
+
+    const QString qtPrefix = qtPrefixPath();
+    if (!qtPrefix.isEmpty()) {
+        configureArguments.append(QStringLiteral("-DCMAKE_PREFIX_PATH=%1").arg(qtPrefix));
+    }
+
+#ifndef Q_OS_WIN
+    configureArguments.append(QStringLiteral("-DCMAKE_BUILD_TYPE=Release"));
+#endif
+
     if (!runCommand(QStringLiteral("cmake"),
-                    {QStringLiteral("-S"), projectPath,
-                     QStringLiteral("-B"), buildPath,
-                     QStringLiteral("-DCMAKE_PREFIX_PATH=%1").arg(qtPrefixPath())},
+                    configureArguments,
                     root,
                     &output,
                     errorMessage)) {
@@ -388,9 +470,15 @@ bool MainWindow::buildTarget(const AppTarget &target, QString *errorMessage)
     setStatus(QStringLiteral("Compilation de %1 (Release)...").arg(target.displayName));
     qApp->processEvents();
 
+    QStringList buildArguments = {
+        QStringLiteral("--build"), buildPath
+    };
+#ifdef Q_OS_WIN
+    buildArguments << QStringLiteral("--config") << QStringLiteral("Release");
+#endif
+
     if (!runCommand(QStringLiteral("cmake"),
-                    {QStringLiteral("--build"), buildPath,
-                     QStringLiteral("--config"), QStringLiteral("Release")},
+                    buildArguments,
                     root,
                     &output,
                     errorMessage)) {
@@ -406,7 +494,13 @@ bool MainWindow::buildTarget(const AppTarget &target, QString *errorMessage)
         return false;
     }
 
-    setStatus(QStringLiteral("Deploiement Qt de %1...").arg(target.displayName));
+    setStatus(
+#ifdef Q_OS_WIN
+        QStringLiteral("Deploiement Qt de %1...").arg(target.displayName),
+#else
+        QStringLiteral("Finalisation de %1...").arg(target.displayName),
+#endif
+        false);
     qApp->processEvents();
 
     if (!deployQtRuntime(exePath, errorMessage)) {
@@ -486,7 +580,7 @@ void MainWindow::launchLogiKnotting()
 {
     const AppTarget target{QStringLiteral("LogiKnotting"),
                            QStringLiteral("LogiKnotting"),
-                           QStringLiteral("LogiKnotting.exe")};
+                           platformExecutableName(QStringLiteral("LogiKnotting"))};
 
     QString error;
     if (launchTarget(target, &error)) {
@@ -501,7 +595,7 @@ void MainWindow::launchLogiBraiding()
 {
     const AppTarget target{QStringLiteral("LogiBraiding"),
                            QStringLiteral("LogiBraiding"),
-                           QStringLiteral("LogiBraiding.exe")};
+                           platformExecutableName(QStringLiteral("LogiBraiding"))};
 
     QString error;
     if (launchTarget(target, &error)) {
@@ -516,10 +610,10 @@ void MainWindow::launchBoth()
 {
     const AppTarget knottingTarget{QStringLiteral("LogiKnotting"),
                                    QStringLiteral("LogiKnotting"),
-                                   QStringLiteral("LogiKnotting.exe")};
+                                   platformExecutableName(QStringLiteral("LogiKnotting"))};
     const AppTarget braidingTarget{QStringLiteral("LogiBraiding"),
                                    QStringLiteral("LogiBraiding"),
-                                   QStringLiteral("LogiBraiding.exe")};
+                                   platformExecutableName(QStringLiteral("LogiBraiding"))};
 
     QString knottingError;
     QString braidingError;
@@ -547,10 +641,10 @@ void MainWindow::buildBoth()
 {
     const AppTarget knottingTarget{QStringLiteral("LogiKnotting"),
                                    QStringLiteral("LogiKnotting"),
-                                   QStringLiteral("LogiKnotting.exe")};
+                                   platformExecutableName(QStringLiteral("LogiKnotting"))};
     const AppTarget braidingTarget{QStringLiteral("LogiBraiding"),
                                    QStringLiteral("LogiBraiding"),
-                                   QStringLiteral("LogiBraiding.exe")};
+                                   platformExecutableName(QStringLiteral("LogiBraiding"))};
 
     QString error;
     if (!buildTarget(knottingTarget, &error)) {
