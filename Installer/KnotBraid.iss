@@ -5,7 +5,8 @@
 ; ============================================================
 
 #define MyAppName "KnotBraid"
-#define MyAppVersion "2026.03.19"
+#define MyAppVersion "1.0"
+#define MyReleaseLabel "V1.0"
 #define MyAppPublisher "Norbert Trupiano"
 #define MyAppURL "https://github.com/norberttrupiano-wq/LogiKnotting"
 #define MyAppExeName "KnotBraid.exe"
@@ -39,7 +40,7 @@ CloseApplications=yes
 CloseApplicationsFilter={#MyAppExeName}
 LicenseFile={#MyLicenseFile}
 OutputDir=Output
-OutputBaseFilename=KnotBraid-Setup-{#MyAppVersion}
+OutputBaseFilename=KnotBraid-Setup-{#MyReleaseLabel}
 PrivilegesRequired=admin
 
 [Languages]
