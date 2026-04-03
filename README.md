@@ -103,16 +103,16 @@ vers votre installation Qt avant la compilation.
 
 ## Nettoyage d’un build bloqué
 
-Si un ancien dossier `build` est verrouillé après déplacement ou renommage :
+Si un ancien dossier `build` pose problème, supprimez le dossier concerné puis relancez la configuration CMake :
 
-```powershell
-.\cleanup-build-ghost.ps1 -ProjectPath "E:\KnotBraid\LogiKnotting" -BuildDir build
+```bash
+rm -rf LogiKnotting/build LogiBraiding/build KnotBraidLauncher/build
 ```
 
-Exemple pour `build2` :
+Sous Windows PowerShell :
 
 ```powershell
-.\cleanup-build-ghost.ps1 -ProjectPath "E:\KnotBraid\LogiBraiding" -BuildDir build2
+Remove-Item -Recurse -Force .\LogiKnotting\build, .\LogiBraiding\build, .\KnotBraidLauncher\build
 ```
 
 ## Publication GitHub
